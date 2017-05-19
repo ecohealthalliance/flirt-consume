@@ -1,0 +1,117 @@
+# handles checking for the existance of new CSV datafiles.  If datafiles
+# are found they are processed.  If not, the applicaiton exits.
+from settings_dev import url, uname, pwd  
+import ftplib
+import os.path
+from datetime import datetime
+import data
+from threading import Thread
+from time import sleep
+import sys
+import zipfile
+
+
+ftp = ftplib.FTP()
+
+def check_ftp():
+  connect_to_ftp()
+  print "read files"
+  CSVs = read_files()
+  return CSVs
+
+
+def threaded_ftp_progress(ftpEntry, path):
+  progress = 0
+  last_length = 0
+  while progress < 99:
+    size = os.path.getsize(path)
+    progress = (size/ftpEntry.size) * 100
+    output = "".join(["Download progress: ", "{0:.2f}".format(progress), "%"])
+    last_length = len(output)
+    sys.stdout.write('\b' * last_length)
+    sys.stdout.write(output)
+    sys.stdout.flush()
+    sleep(1)
+
+def connect_to_ftp():
+  ftp.connect(url)
+  ftp.login(uname, pwd)
+
+def sortByModified( aString ):
+    entryAttr = aString.split(';')
+    modified = entryAttr[2].strip()
+    return modified
+
+#downloads an unprocessed file from FlightGlobal's FTP 
+def download_file(ftpEntry):
+  print "downloading", ftpEntry.name
+  data_directory = os.path.join(os.getcwd(), 'data')
+  filepathname = os.path.join(data_directory, ftpEntry.name)
+
+  try:
+    fileOut = open(filepathname,'wb')
+  except:
+    raise IOError("ERROR: Could not open the output file for writing")
+
+  try:
+    thread = Thread(target = threaded_ftp_progress, args = (ftpEntry,filepathname))
+    thread.start()
+    ftp.retrbinary('RETR %s' % ftpEntry.name, fileOut.write)
+  except:
+    print "Problem downloading file", ftpEntry.name
+    raise
+  finally:
+    thread.join()
+    print ""
+    print "Done downloading", ftpEntry.name, "!!!"
+    print "**************************************"
+  fileOut.close()
+  return filepathname
+
+# extracts the CSV file from the FlightGlobal zip file
+def extract_file(filePath):
+  data_directory = os.path.dirname(filePath)
+  zip_ref = zipfile.ZipFile(filePath, 'r')
+  if len(zip_ref.namelist()) != 1:
+    raise IOError("ERROR: More than one file contained in Zip, should just be one CSV file")
+  print "Extracting zip file: %s" % zip_ref.namelist()[0]
+  csvfile = zip_ref.extract(zip_ref.namelist()[0], data_directory)
+  zip_ref.close()
+  print "CSV Extracted:", csvfile
+  return csvfile
+
+def read_files():
+  ls = []
+  ftp.retrlines('MLSD', ls.append) 
+  ls.sort( key= sortByModified, reverse= True )
+  CSVs = []
+  for entry in ls:
+    ftpEntry = FtpEntry(entry)
+    if ftpEntry.needs_to_be_processed:
+      print "Processing file", ftpEntry.name
+      filePath = download_file(ftpEntry)
+      csv = extract_file(filePath)
+      CSVs.append(csv)
+  return CSVs
+
+class FtpEntry:
+  # each entry will be an array like the following: ['Type=file;','Size=34;','Modify=20170207103453.870;',' EcoHealth_20170207.md5']
+  def __init__(self, entry):
+    db = data.FlirtDB().db
+    entry =  entry.split(";")
+    self.type = self.__getValue(entry[0])
+    self.size = float(self.__getValue(entry[1]))
+    self.modify = datetime.strptime(self.__getValue(entry[2]), '%Y%m%d%H%M%S.%f')
+    self.name = entry[3]
+    self.extension = os.path.splitext(entry[3])[1]
+    # we are assuming that zip files that do not have an entry in the "processedFiles" collection need to be processed 
+    self.needs_to_be_processed = self.extension == ".zip" and db.processedFiles.find_one({'fileName': self.name}) == None
+
+  # extracts the value from the key/value pair. Example: 'Type=file' returns `file`
+  def __getValue(self, pair):
+    return pair.split("=")[1]
+
+# if __name__ == '__main__':
+#   connect_to_ftp()
+  # db = data.FlirtDB().db
+  # print "db", db.legs.find_one()
