@@ -9,7 +9,8 @@ from threading import Thread
 from time import sleep
 import sys
 import zipfile
-
+from settings_dev import host, db 
+import pymongo
 
 ftp = ftplib.FTP()
 
@@ -48,24 +49,24 @@ def download_file(ftpEntry):
   data_directory = os.path.join(os.getcwd(), 'data')
   filepathname = os.path.join(data_directory, ftpEntry.name)
 
-  try:
-    fileOut = open(filepathname,'wb')
-  except:
-    raise IOError("ERROR: Could not open the output file for writing")
+  # try:
+  #   fileOut = open(filepathname,'wb')
+  # except:
+  #   raise IOError("ERROR: Could not open the output file for writing")
 
-  try:
-    thread = Thread(target = threaded_ftp_progress, args = (ftpEntry,filepathname))
-    thread.start()
-    ftp.retrbinary('RETR %s' % ftpEntry.name, fileOut.write)
-  except:
-    print "Problem downloading file", ftpEntry.name
-    raise
-  finally:
-    thread.join()
-    print ""
-    print "Done downloading", ftpEntry.name, "!!!"
-    print "**************************************"
-  fileOut.close()
+  # try:
+  #   thread = Thread(target = threaded_ftp_progress, args = (ftpEntry,filepathname))
+  #   thread.start()
+  #   ftp.retrbinary('RETR %s' % ftpEntry.name, fileOut.write)
+  # except:
+  #   print "Problem downloading file", ftpEntry.name
+  #   raise
+  # finally:
+  #   thread.join()
+  #   print ""
+  #   print "Done downloading", ftpEntry.name, "!!!"
+  #   print "**************************************"
+  # fileOut.close()
   return filepathname
 
 # extracts the CSV file from the FlightGlobal zip file
@@ -83,7 +84,7 @@ def extract_file(filePath):
 def read_files():
   ls = []
   ftp.retrlines('MLSD', ls.append) 
-  ls.sort( key= sortByModified, reverse= True )
+  ls.sort( key= sortByModified)
   CSVs = []
   for entry in ls:
     ftpEntry = FtpEntry(entry)
@@ -97,7 +98,10 @@ def read_files():
 class FtpEntry:
   # each entry will be an array like the following: ['Type=file;','Size=34;','Modify=20170207103453.870;',' EcoHealth_20170207.md5']
   def __init__(self, entry):
-    db = data.FlirtDB().db
+    # db = data.FlirtDB().db
+    uri = 'mongodb://%s/%s' % (host, db)
+    client = pymongo.MongoClient(uri)
+    flirtDb = client['flirt']
     entry =  entry.split(";")
     self.type = self.__getValue(entry[0])
     self.size = float(self.__getValue(entry[1]))
@@ -105,7 +109,7 @@ class FtpEntry:
     self.name = entry[3]
     self.extension = os.path.splitext(entry[3])[1]
     # we are assuming that zip files that do not have an entry in the "processedFiles" collection need to be processed 
-    self.needs_to_be_processed = self.extension == ".zip" and db.processedFiles.find_one({'fileName': self.name}) == None
+    self.needs_to_be_processed = self.extension == ".zip" and flirtDb.processedFiles.find_one({'fileName': self.name}) == None
 
   # extracts the value from the key/value pair. Example: 'Type=file' returns `file`
   def __getValue(self, pair):
