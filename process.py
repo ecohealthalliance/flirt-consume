@@ -13,7 +13,7 @@ db = client['flirt']
 def read_file(datafile):
   date = datetime.strptime(os.path.basename(datafile), "EcoHealth_%Y%m%d.csv")
   update_previous_dump(date)
-  data = pd.read_csv(datafile, converters={'effectiveDate': convert_to_date, 'discontinuedDate': convert_to_date}, nrows=10)
+  data = pd.read_csv(datafile, converters={'effectiveDate': convert_to_date, 'discontinuedDate': convert_to_date}, nrows=10, sep=',')
   for index, leg in data.iterrows():
     process_leg(leg)
 
