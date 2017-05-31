@@ -1,2 +1,4 @@
 settings_dev.py
 *.pyc
+*.csv
+*.zip
