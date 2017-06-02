@@ -8,12 +8,15 @@ import os.path
 
 uri = 'mongodb://%s/%s' % (host, db)
 client = pymongo.MongoClient(uri)
-db = client['flirt']
+db = client[db]
 
 def read_file(datafile):
   date = datetime.strptime(os.path.basename(datafile), "EcoHealth_%Y%m%d.csv")
   update_previous_dump(date)
-  data = pd.read_csv(datafile, converters={'effectiveDate': convert_to_date, 'discontinuedDate': convert_to_date}, nrows=10, sep=',')
+  data = pd.read_csv(datafile, converters={'effectiveDate': convert_to_date, 'discontinuedDate': convert_to_date}, sep=',')
+  # data = pd.read_csv(datafile, converters={'effectiveDate': convert_to_date, 'discontinuedDate': convert_to_date}, nrows=10, sep=',')
+  # we don't care about records that have more than 0 stops
+  data = data.loc[data["stops"] == 0]
   for index, leg in data.iterrows():
     process_leg(leg)
 
@@ -43,6 +46,11 @@ def process_leg(leg):
   departureAirport = db.airports.find_one({"_id": leg.departureAirport})
   arrivalAirport = db.airports.find_one({"_id": leg.arrivalAirport})
 
+  # related to part 2 of this story: https://www.pivotaltracker.com/story/show/145527963
+  # laying the groundwork for inserting individual flights rather than flight schedules
+  # break_leg_into_flights(leg)
+
+
   # set the effective date of the current record to today and insert it
   # NOTE - leaving out stops and stop codes.  Will this break existing FLIRT
   # print("departureAirport", departureAirport)
@@ -69,6 +77,10 @@ def process_leg(leg):
       "totalSeats": leg.totalSeats
     })
 
+# will be used in future iteration of consume where we insert individual flights instead of flight schedules 
+def break_leg_into_flights():
+  print("Need to implement break_leg_into_flights")
+
 if __name__ == '__main__':
   # setup a way to read backlog of files from S3 instead of reading files from FlightGlobal FTP
   # check FTP
@@ -76,5 +88,3 @@ if __name__ == '__main__':
   # take list of files returned by FTP check and process them
   for csv in CSVs:
     read_file(csv)
-    # print "csv", csv
-    # legs = Legs(csv)
