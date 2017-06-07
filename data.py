@@ -22,7 +22,6 @@ def check_ftp():
   return CSVs
 
 def pull_from_s3():
-  print "pull from S3"
   CSVs = []
   s3 = boto3.resource("s3")
   flirt = s3.Bucket("eha-flirt")

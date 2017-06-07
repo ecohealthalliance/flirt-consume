@@ -5,13 +5,11 @@ from settings_dev import host, db
 import pymongo
 from datetime import datetime, timedelta
 import os.path
-import sys
-import getopt
+import argparse
 
 uri = 'mongodb://%s/%s' % (host, db)
 client = pymongo.MongoClient(uri)
 db = client[db]
-s3 = False
 
 def read_file(datafile):
   try:
@@ -87,23 +85,21 @@ def process_leg(leg):
 def break_leg_into_flights():
   print("Need to implement break_leg_into_flights")
 
-def process_args():
-  for opt in sys.argv[1:]:
-    if opt in ("-s", "--s3"):
-      global s3
-      s3 = True
-
 if __name__ == '__main__':
-  process_args()
+
+  parser = argparse.ArgumentParser()
+  parser.add_argument("-s", "--s3", help="Specify that files should be downloaded from S3", action="store_true")
+  args = parser.parse_args()
+
   # setup a way to read backlog of files from S3 instead of reading files from FlightGlobal FTP
   CSVs = None
-  # if user specified S3 as data source pull 8f from there
-  if s3:
+  # if user specified S3 as data source pull from there
+  if args.s3:
     print "processing S3"
     CSVs = data.pull_from_s3()
-  # else
+    CSVs.sort()
   else:
-    print "processing FTP", s3
+    print "processing FTP"
     # check FTP
     CSVs = data.check_ftp()
   # take list of files returned by FTP check and process them
