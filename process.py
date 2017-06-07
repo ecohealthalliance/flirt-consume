@@ -1,24 +1,30 @@
-import ftp
+import data
 from legs import Legs
 import pandas as pd
 from settings_dev import host, db 
 import pymongo
 from datetime import datetime, timedelta
 import os.path
+import sys
+import getopt
 
 uri = 'mongodb://%s/%s' % (host, db)
 client = pymongo.MongoClient(uri)
 db = client[db]
+s3 = False
 
 def read_file(datafile):
-  date = datetime.strptime(os.path.basename(datafile), "EcoHealth_%Y%m%d.csv")
-  update_previous_dump(date)
-  data = pd.read_csv(datafile, converters={'effectiveDate': convert_to_date, 'discontinuedDate': convert_to_date}, sep=',')
-  # data = pd.read_csv(datafile, converters={'effectiveDate': convert_to_date, 'discontinuedDate': convert_to_date}, nrows=10, sep=',')
-  # we don't care about records that have more than 0 stops
-  data = data.loc[data["stops"] == 0]
-  for index, leg in data.iterrows():
-    process_leg(leg)
+  try:
+    date = datetime.strptime(os.path.basename(datafile), "EcoHealth_%Y%m%d.csv")
+    update_previous_dump(date)
+    data = pd.read_csv(datafile, converters={'effectiveDate': convert_to_date, 'discontinuedDate': convert_to_date}, sep=',')
+    # data = pd.read_csv(datafile, converters={'effectiveDate': convert_to_date, 'discontinuedDate': convert_to_date}, nrows=10, sep=',')
+    # we don't care about records that have more than 0 stops
+    data = data.loc[data["stops"] == 0]
+    for index, leg in data.iterrows():
+      process_leg(leg)
+  except ValueError:
+    print "Could not parse date from", datafile
 
 def convert_to_date(value):
     return datetime.strptime(value, "%d/%m/%Y")
@@ -81,10 +87,25 @@ def process_leg(leg):
 def break_leg_into_flights():
   print("Need to implement break_leg_into_flights")
 
+def process_args():
+  for opt in sys.argv[1:]:
+    if opt in ("-s", "--s3"):
+      global s3
+      s3 = True
+
 if __name__ == '__main__':
+  process_args()
   # setup a way to read backlog of files from S3 instead of reading files from FlightGlobal FTP
-  # check FTP
-  CSVs = ftp.check_ftp()
+  CSVs = None
+  # if user specified S3 as data source pull 8f from there
+  if s3:
+    print "processing S3"
+    CSVs = data.pull_from_s3()
+  # else
+  else:
+    print "processing FTP", s3
+    # check FTP
+    CSVs = data.check_ftp()
   # take list of files returned by FTP check and process them
   for csv in CSVs:
     read_file(csv)

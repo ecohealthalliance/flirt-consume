@@ -1,6 +1,6 @@
-# handles checking for the existance of new CSV datafiles.  If datafiles
-# are found they are processed.  If not, the applicaiton exits.
-from settings_dev import url, uname, pwd  
+# Handles pulling data files from both FTP and the S3 archive
+
+from settings_dev import url, uname, pwd
 import ftplib
 import os.path
 from datetime import datetime
@@ -11,6 +11,7 @@ import sys
 import zipfile
 from settings_dev import host, db 
 import pymongo
+import boto3
 
 ftp = ftplib.FTP()
 
@@ -20,6 +21,19 @@ def check_ftp():
   CSVs = read_files()
   return CSVs
 
+def pull_from_s3():
+  print "pull from S3"
+  CSVs = []
+  s3 = boto3.resource("s3")
+  flirt = s3.Bucket("eha-flirt")
+  data_directory = os.path.join(os.getcwd(), 'data')
+  for s3File in flirt.objects.all():
+    if s3File.key.startswith("EcoHealth"):
+      print "downloading....", s3File.key, data_directory + "/" + s3File.key
+      flirt.download_file(s3File.key, data_directory + "/" + s3File.key)
+      csv = extract_file(data_directory + "/" + s3File.key)
+      CSVs.append(csv)
+  return CSVs
 
 def threaded_ftp_progress(ftpEntry, path):
   progress = 0

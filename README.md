@@ -16,6 +16,12 @@ Before running restore the `airports` collection to the new FLIRT db:
 mongorestore --db flirt --collection airports data/airports/airports.bson
 ```
 
+#### Data source
+By default data is pulled from the FlightGlobal FTP.  To pull from the S3 archive use the `-s` or `--s3` flags:
+```
+python process.py --s3
+```
+
 #### Tests
 tests are located in the `tests` directory.  To run enter:
 ```./run_tests.sh```
