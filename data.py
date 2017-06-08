@@ -14,6 +14,8 @@ import pymongo
 import boto3
 
 ftp = ftplib.FTP()
+s3 = boto3.resource("s3")
+flirt = s3.Bucket("eha-flirt")
 
 def check_ftp():
   connect_to_ftp()
@@ -23,8 +25,6 @@ def check_ftp():
 
 def pull_from_s3():
   CSVs = []
-  s3 = boto3.resource("s3")
-  flirt = s3.Bucket("eha-flirt")
   data_directory = os.path.join(os.getcwd(), 'data')
   for s3File in flirt.objects.all():
     if s3File.key.startswith("EcoHealth"):
@@ -60,8 +60,8 @@ def sortByModified( aString ):
 def download_file(ftpEntry):
   print "downloading", ftpEntry.name
   data_directory = os.path.join(os.getcwd(), 'data')
-  filepathname = os.path.join(data_directory, ftpEntry.name)
-
+  fileName = ftpEntry.name.strip()
+  filepathname = os.path.join(data_directory, fileName)
   # try:
   #   fileOut = open(filepathname,'wb')
   # except:
@@ -80,6 +80,14 @@ def download_file(ftpEntry):
   #   print "Done downloading", ftpEntry.name, "!!!"
   #   print "**************************************"
   # fileOut.close()
+
+  # backup zip to S3 if it's not already there
+  objs = list(flirt.objects.filter(Prefix=fileName))
+  if len(objs) == 0:
+    print "Backing up file to S3:", fileName
+    data = open(filepathname, 'rb')
+    flirt.put_object(Key=fileName, Body=data)
+
   return filepathname
 
 # extracts the CSV file from the FlightGlobal zip file
