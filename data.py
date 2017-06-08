@@ -102,10 +102,14 @@ def extract_file(filePath):
   print "CSV Extracted:", csvfile
   return csvfile
 
-def read_files():
+def get_ftp_entries():
   ls = []
   ftp.retrlines('MLSD', ls.append) 
   ls.sort( key= sortByModified)
+  return ls
+
+def read_files():
+  ls = get_ftp_entries()
   CSVs = []
   for entry in ls:
     ftpEntry = FtpEntry(entry)
