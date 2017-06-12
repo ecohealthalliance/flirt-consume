@@ -58,28 +58,31 @@ def sortByModified( a_string ):
 
 #downloads an unprocessed file from FlightGlobal's FTP 
 def download_file(ftp_entry):
-  print "downloading", ftp_entry.name
   data_directory = os.path.join(os.getcwd(), 'data')
   file_name = ftp_entry.name.strip()
   filepathname = os.path.join(data_directory, file_name)
-  # try:
-  #   fileOut = open(filepathname,'wb')
-  # except:
-  #   raise IOError("ERROR: Could not open the output file for writing")
+  if os.path.isfile(filepathname):
+    print "downloading", ftp_entry.name
+    try:
+      fileOut = open(filepathname,'wb')
+    except:
+      raise IOError("ERROR: Could not open the output file for writing")
 
-  # try:
-  #   thread = Thread(target = threaded_ftp_progress, args = (ftp_entry,filepathname))
-  #   thread.start()
-  #   ftp.retrbinary('RETR %s' % ftp_entry.name, fileOut.write)
-  # except:
-  #   print "Problem downloading file", ftp_entry.name
-  #   raise
-  # finally:
-  #   thread.join()
-  #   print ""
-  #   print "Done downloading", ftp_entry.name, "!!!"
-  #   print "**************************************"
-  # fileOut.close()
+    try:
+      thread = Thread(target = threaded_ftp_progress, args = (ftp_entry,filepathname))
+      thread.start()
+      ftp.retrbinary('RETR %s' % ftp_entry.name, fileOut.write)
+    except:
+      print "Problem downloading file", ftp_entry.name
+      raise
+    finally:
+      thread.join()
+      print ""
+      print "Done downloading", ftp_entry.name, "!!!"
+      print "**************************************"
+    fileOut.close()
+  else:
+    print "File already exists - skipping download:", filepathname
 
   # backup zip to S3 if it's not already there
   objs = list(flirt.objects.filter(Prefix=file_name))
@@ -87,7 +90,6 @@ def download_file(ftp_entry):
     print "Backing up file to S3:", file_name
     data = open(filepathname, 'rb')
     flirt.put_object(Key=file_name, Body=data)
-
   return filepathname
 
 # extracts the CSV file from the FlightGlobal zip file
