@@ -61,26 +61,21 @@ def download_file(ftp_entry):
   data_directory = os.path.join(os.getcwd(), 'data')
   file_name = ftp_entry.name.strip()
   filepathname = os.path.join(data_directory, file_name)
-  if os.path.isfile(filepathname):
+  if not os.path.isfile(filepathname):
     print "downloading", ftp_entry.name
-    try:
-      fileOut = open(filepathname,'wb')
-    except:
-      raise IOError("ERROR: Could not open the output file for writing")
-
-    try:
-      thread = Thread(target = threaded_ftp_progress, args = (ftp_entry,filepathname))
-      thread.start()
-      ftp.retrbinary('RETR %s' % ftp_entry.name, fileOut.write)
-    except:
-      print "Problem downloading file", ftp_entry.name
-      raise
-    finally:
-      thread.join()
-      print ""
-      print "Done downloading", ftp_entry.name, "!!!"
-      print "**************************************"
-    fileOut.close()
+    with open(filepathname,'wb') as file_out:
+      try:
+        thread = Thread(target = threaded_ftp_progress, args = (ftp_entry,filepathname))
+        thread.start()
+        ftp.retrbinary('RETR %s' % ftp_entry.name, file_out.write)
+      except:
+        print "Problem downloading file", ftp_entry.name
+        raise
+      finally:
+        thread.join()
+        print ""
+        print "Done downloading", ftp_entry.name, "!!!"
+        print "**************************************"
   else:
     print "File already exists - skipping download:", filepathname
 
