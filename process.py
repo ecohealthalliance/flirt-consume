@@ -6,21 +6,38 @@ import pymongo
 from datetime import datetime, timedelta
 import os.path
 import argparse
+import time
 
 uri = 'mongodb://%s/%s' % (host, db)
 client = pymongo.MongoClient(uri)
 db = client[db]
+bulk = db.legs.initialize_ordered_bulk_op()
 
 def read_file(datafile):
   try:
     date = datetime.strptime(os.path.basename(datafile), "EcoHealth_%Y%m%d.csv")
+    print "update previous dump", date
+    start = time.time()
     update_previous_dump(date)
+    end = time.time()
+    print "finished updating previous dump", end - start
+    print "begin read csv"
+    start = time.time()
     data = pd.read_csv(datafile, converters={'effectiveDate': convert_to_date, 'discontinuedDate': convert_to_date}, sep=',')
+    end = time.time()
+    print "finished reading CSV", end - start
     # data = pd.read_csv(datafile, converters={'effectiveDate': convert_to_date, 'discontinuedDate': convert_to_date}, nrows=10, sep=',')
     # we don't care about records that have more than 0 stops
     data = data.loc[data["stops"] == 0]
+    print "begin processing legs"
+    start = time.time()
     for index, leg in data.iterrows():
+      if index % 10000 == 0:
+        end = time.time()
+        print "processed", index, "legs in", end - start
       process_leg(leg)
+    end = time.time()
+    print "done processing legs", end - start
   except ValueError:
     print "Could not parse date from", datafile
 
@@ -58,7 +75,7 @@ def process_leg(leg):
   # set the effective date of the current record to today and insert it
   # NOTE - leaving out stops and stop codes.  Will this break existing FLIRT
   # print("departureAirport", departureAirport)
-  db.legs.insert_one({
+  bulk.insert({
       "carrier": leg.carrier,
       "flightNumber": leg.flightnumber,
       "day1": leg.day1 == 1,

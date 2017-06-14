@@ -61,7 +61,7 @@ def download_file(ftp_entry):
   data_directory = os.path.join(os.getcwd(), 'data')
   file_name = ftp_entry.name.strip()
   filepathname = os.path.join(data_directory, file_name)
-  if os.path.isfile(filepathname):
+  if not os.path.isfile(filepathname):
     print "downloading", ftp_entry.name
     try:
       fileOut = open(filepathname,'wb')
