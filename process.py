@@ -6,6 +6,7 @@ import pymongo
 from datetime import datetime, timedelta
 import os.path
 import argparse
+import time
 
 uri = 'mongodb://%s/%s' % (host, db)
 client = pymongo.MongoClient(uri)
@@ -13,14 +14,65 @@ db = client[db]
 
 def read_file(datafile):
   try:
+    bulk = db.legs.initialize_unordered_bulk_op()
     date = datetime.strptime(os.path.basename(datafile), "EcoHealth_%Y%m%d.csv")
+    print "update previous dump", date
+    start = time.time()
     update_previous_dump(date)
+    end = time.time()
+    print "finished updating previous dump", end - start
+    print "begin read csv"
+    start = time.time()
     data = pd.read_csv(datafile, converters={'effectiveDate': convert_to_date, 'discontinuedDate': convert_to_date}, sep=',')
+    end = time.time()
+    print "finished reading CSV", end - start
     # data = pd.read_csv(datafile, converters={'effectiveDate': convert_to_date, 'discontinuedDate': convert_to_date}, nrows=10, sep=',')
     # we don't care about records that have more than 0 stops
     data = data.loc[data["stops"] == 0]
+    print "begin processing legs"
+    start = time.time()
     for index, leg in data.iterrows():
-      process_leg(leg)
+      if index % 10000 == 0:
+        end = time.time()
+        print "processed", index, "legs in", end - start
+      # if record has stops != 0 then don't process record. AKA if stops == 0 we process the record
+      if leg.stops > 0:
+        return
+      departureAirport = db.airports.find_one({"_id": leg.departureAirport})
+      arrivalAirport = db.airports.find_one({"_id": leg.arrivalAirport})
+
+      # related to part 2 of this story: https://www.pivotaltracker.com/story/show/145527963
+      # laying the groundwork for inserting individual flights rather than flight schedules
+      # break_leg_into_flights(leg)
+
+
+      # set the effective date of the current record to today and insert it
+      # NOTE - leaving out stops and stop codes.  Will this break existing FLIRT
+      bulk.insert({
+          "carrier": leg.carrier,
+          "flightNumber": leg.flightnumber,
+          "day1": leg.day1 == 1,
+          "day2": leg.day2 == 1,
+          "day3": leg.day3 == 1,
+          "day4": leg.day4 == 1,
+          "day5": leg.day5 == 1,
+          "day6": leg.day6 == 1,
+          "day7": leg.day7 == 1,
+          "effectiveDate": leg.effectiveDate,
+          "discontinuedDate": leg.discontinuedDate,
+          # "departureCity": leg.departureCity,             #are these needed since we are already including the airports?
+          # "departuresState": leg.departureState,
+          # "departureCountry": leg.departureCountry,
+          # "arrivalCity": leg.arrivalCity,
+          # "arrivalState": leg.arrivalState,
+          # "arrivalCountry": leg.arrivalCountry,
+          "departureAirport": departureAirport,
+          "arrivalAirport": arrivalAirport,
+          "totalSeats": leg.totalSeats
+        })
+    end = time.time()
+    bulk.execute()
+    print "done processing legs", end - start
   except ValueError:
     print "Could not parse date from", datafile
 
@@ -40,46 +92,6 @@ def update_previous_dump(dumpDate):
     },
     {"$set": {"discontinuedDate": yesterday}}
   )
-
-def process_leg(leg):
-  # print "process", leg
-  # if record has stops != 0 then don't process record. AKA if stops == 0 we process the record
-  if leg.stops > 0:
-    return
-
-  departureAirport = db.airports.find_one({"_id": leg.departureAirport})
-  arrivalAirport = db.airports.find_one({"_id": leg.arrivalAirport})
-
-  # related to part 2 of this story: https://www.pivotaltracker.com/story/show/145527963
-  # laying the groundwork for inserting individual flights rather than flight schedules
-  # break_leg_into_flights(leg)
-
-
-  # set the effective date of the current record to today and insert it
-  # NOTE - leaving out stops and stop codes.  Will this break existing FLIRT
-  # print("departureAirport", departureAirport)
-  db.legs.insert_one({
-      "carrier": leg.carrier,
-      "flightNumber": leg.flightnumber,
-      "day1": leg.day1 == 1,
-      "day2": leg.day2 == 1,
-      "day3": leg.day3 == 1,
-      "day4": leg.day4 == 1,
-      "day5": leg.day5 == 1,
-      "day6": leg.day6 == 1,
-      "day7": leg.day7 == 1,
-      "effectiveDate": leg.effectiveDate,
-      "discontinuedDate": leg.discontinuedDate,
-      # "departureCity": leg.departureCity,             #are these needed since we are already including the airports?
-      # "departuresState": leg.departureState,
-      # "departureCountry": leg.departureCountry,
-      # "arrivalCity": leg.arrivalCity,
-      # "arrivalState": leg.arrivalState,
-      # "arrivalCountry": leg.arrivalCountry,
-      "departureAirport": departureAirport,
-      "arrivalAirport": arrivalAirport,
-      "totalSeats": leg.totalSeats
-    })
 
 # will be used in future iteration of consume where we insert individual flights instead of flight schedules 
 def break_leg_into_flights():
