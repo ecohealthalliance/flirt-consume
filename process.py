@@ -2,14 +2,14 @@ import data
 from legs import Legs
 import pandas as pd
 from settings_dev import host, db 
-import pymongo
+from pymongo import IndexModel, MongoClient, ASCENDING
 from datetime import datetime, timedelta
 import os.path
 import argparse
 import time
 
 uri = 'mongodb://%s/%s' % (host, db)
-client = pymongo.MongoClient(uri)
+client = MongoClient(uri)
 db = client[db]
 
 def read_file(datafile):
@@ -21,6 +21,13 @@ def read_file(datafile):
     update_previous_dump(date)
     end = time.time()
     print "finished updating previous dump", end - start
+
+    print "drop indexes"
+    start = time.time()
+    drop_indexes()
+    end = time.time()
+    print "Indexes dropped!", end - start
+
     print "begin read csv"
     start = time.time()
     data = pd.read_csv(datafile, converters={'effectiveDate': convert_to_date, 'discontinuedDate': convert_to_date}, sep=',')
@@ -48,6 +55,7 @@ def read_file(datafile):
 
       # set the effective date of the current record to today and insert it
       # NOTE - leaving out stops and stop codes.  Will this break existing FLIRT
+      weeklyTotals = leg.day1 + leg.day2 + leg.day3 + leg.day4 + leg.day5 + leg.day6 + leg.day7
       bulk.insert({
           "carrier": leg.carrier,
           "flightNumber": leg.flightnumber,
@@ -58,8 +66,11 @@ def read_file(datafile):
           "day5": leg.day5 == 1,
           "day6": leg.day6 == 1,
           "day7": leg.day7 == 1,
+          "weeklyFrequency": weeklyTotals,
           "effectiveDate": leg.effectiveDate,
           "discontinuedDate": leg.discontinuedDate,
+          "arrivalTimeUTC": leg.arrivalTimePub,
+          "departureTimeUTC": leg.departureTimePub,
           # "departureCity": leg.departureCity,             #are these needed since we are already including the airports?
           # "departuresState": leg.departureState,
           # "departureCountry": leg.departureCountry,
@@ -75,6 +86,27 @@ def read_file(datafile):
     print "done processing legs", end - start
   except ValueError:
     print "Could not parse date from", datafile
+
+def drop_indexes():
+  db.legs.drop_indexes()
+
+def create_indexes():
+  idIndex = IndexModel([("_id", ASCENDING)])
+  departureIndex = IndexModel([("departureAirport._id", ASCENDING)])
+  departEffectDiscIndex = IndexModel([
+    ("departureAirport._id", ASCENDING),
+    ("effectiveDate", ASCENDING),
+    ("discontinuedDate", ASCENDING)
+  ])
+  effectiveIndex = IndexModel([("effectiveDate", ASCENDING)])
+  discontinueIndex = IndexModel([("discontinuedDate", ASCENDING)])
+  db.legs.create_indexes([
+    idIndex,
+    departureIndex,
+    departEffectDiscIndex,
+    effectiveIndex,
+    discontinueIndex
+  ])
 
 def convert_to_date(value):
     return datetime.strptime(value, "%d/%m/%Y")
@@ -117,3 +149,8 @@ if __name__ == '__main__':
   # take list of files returned by FTP check and process them
   for csv in CSVs:
     read_file(csv)
+  print "Re-creating indexes..."
+  start = time.time()
+  create_indexes()
+  end = time.time()
+  print "Indexes re-created!", end - start
