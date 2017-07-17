@@ -30,13 +30,11 @@ def pull_from_s3():
     fileName = data_directory + "/" + s3File.key
     if os.path.isfile(fileName):
       print "file already exists(skipping download): ", fileName
-      csv = extract_file(fileName)
-      CSVs.append(csv)
     elif s3File.key.startswith("EcoHealth_"):
       print "downloading....", s3File.key, fileName
       flirt.download_file(s3File.key, fileName)
-      csv = extract_file(fileName)
-      CSVs.append(csv)
+    csv = extract_file(fileName)
+    CSVs.append(csv)
   return CSVs
 
 def threaded_ftp_progress(ftpEntry, path):
