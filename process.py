@@ -20,10 +20,8 @@ def read_file(datafile):
     bulkFlights = db.flights.initialize_unordered_bulk_op()
     # will be used in future iteration of consume where we insert individual flights instead of flight schedules 
     def create_flights(record):
-      dayList = [record.day1, record.day2, record.day3, record.day4, record.day5, record.day6, record.day7]
       # create range of dates between effective/discontinued dates for this leg
-      # delta = record.discontinuedDate - record.effectiveDate
-      dates = get_date_range(record.effectiveDate,record.discontinuedDate)
+      dates = get_date_range(record.effectiveDate,record.discontinuedDate, get_day_list(record))
       for date in dates:
         arrivalPieces = record.arrivalTimePub.split(":")
         arrivalDateTime = date.replace(hour=int(arrivalPieces[0]), minute=int(arrivalPieces[1]))
@@ -59,7 +57,7 @@ def read_file(datafile):
           "departureAirport": departureAirport,
           "arrivalAirport": arrivalAirport,
           "totalSeats": record.totalSeats,
-          "calculatedDates": get_date_range(record.effectiveDate, record.discontinuedDate)
+          "calculatedDates": get_date_range(record.effectiveDate, record.discontinuedDate, get_day_list(record))
         })
     date = None
     try:
@@ -104,12 +102,17 @@ def read_file(datafile):
   except ValueError as e:
     print e
 
-def get_date_range(startDate, endDate):
+def get_date_range(startDate, endDate, days):
   delta = endDate - startDate
   dates = []
   for dateNumber in range(delta.days + 1):
-    dates.append(startDate + timedelta(days=dateNumber))
+    date = startDate + timedelta(days=dateNumber)
+    if days[date.weekday()]:
+      dates.append(date)
   return dates
+
+def get_day_list(record):
+  return [record.day1, record.day2, record.day3, record.day4, record.day5, record.day6, record.day7]
 
 def convert_to_date(value):
     return datetime.strptime(value, "%d/%m/%Y")
@@ -124,12 +127,23 @@ def update_previous_dump(dumpDate, flights=False):
   if flights:
     db.flights.delete_many({"departureDateTime": {"$gt": yesterday}})
   else:
+    updateLegs = db.legs.find_one({ "effectiveDate": {"$lt": dumpDate}, "discontinuedDate": {"$gt": dumpDate}})
+    print "updateLegs", updateLegs
     db.legs.delete_many({"effectiveDate": {"$gt": yesterday}})
     db.legs.update(
       { "effectiveDate": {"$lt": dumpDate},
         "discontinuedDate": {"$gt": dumpDate}
       },
       {"$set": {"discontinuedDate": yesterday}}
+    )
+    # pull array values
+    db.legs.update(
+      { "effectiveDate": {"$lt": dumpDate},
+        "discontinuedDate": {"$gt": dumpDate}
+      },
+      {"$pull": {"calculatedDates": {"$gt": dumpDate}}},
+      upsert=False, 
+      multi=True
     )
   end = time.time()
   print "finished updating previous dump", end - start
