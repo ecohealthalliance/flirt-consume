@@ -27,10 +27,14 @@ def pull_from_s3():
   CSVs = []
   data_directory = os.path.join(os.getcwd(), 'data')
   for s3File in flirt.objects.all():
-    if s3File.key.startswith("EcoHealth"):
-      print "downloading....", s3File.key, data_directory + "/" + s3File.key
-      flirt.download_file(s3File.key, data_directory + "/" + s3File.key)
-      csv = extract_file(data_directory + "/" + s3File.key)
+    if s3File.key.startswith("EcoHealth_"):
+      fileName = data_directory + "/" + s3File.key
+      if os.path.isfile(fileName):
+        print "file already exists(skipping download): ", fileName
+      elif s3File.key.startswith("EcoHealth_"):
+        print "downloading....", s3File.key, fileName
+        flirt.download_file(s3File.key, fileName)
+      csv = extract_file(fileName)
       CSVs.append(csv)
   return CSVs
 
