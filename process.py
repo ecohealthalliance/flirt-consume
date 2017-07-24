@@ -59,20 +59,15 @@ def read_file(datafile):
           "totalSeats": record.totalSeats,
           "calculatedDates": get_date_range(record.effectiveDate, record.discontinuedDate, get_day_list(record))
         })
-    date = None
-    try:
-      date = datetime.strptime(os.path.basename(datafile), "EcoHealth_%Y%m%d.csv")
-    except ValueError as e:
-      print "Could not parse date from", datafile
-      return
-
-    update_previous_dump(date,args.flights)
 
     print "begin read csv"
     start = time.time()
-    data = pd.read_csv(datafile, converters={'effectiveDate': convert_to_date, 'discontinuedDate': convert_to_date}, sep=',', nrows=1000)
+    data = pd.read_csv(datafile, converters={'effectiveDate': convert_to_date, 'discontinuedDate': convert_to_date}, sep=',')
     end = time.time()
     print "finished reading CSV", end - start
+
+    date = data['effectiveDate'].min()
+    update_previous_dump(date,args.flights)
 
     # data = pd.read_csv(datafile, converters={'effectiveDate': convert_to_date, 'discontinuedDate': convert_to_date}, nrows=10, sep=',')
     # we don't care about records that have more than 0 stops
@@ -125,25 +120,24 @@ def update_previous_dump(dumpDate, flights=False):
   # previous records where the effectiveDate strays into the present
   yesterday = dumpDate - timedelta(days=1)
   if flights:
-    db.flights.delete_many({"departureDateTime": {"$gt": yesterday}})
+    db.flights.delete_many({"departureDateTime": {"$gte": dumpDate}})
   else:
     updateLegs = db.legs.find_one({ "effectiveDate": {"$lt": dumpDate}, "discontinuedDate": {"$gt": dumpDate}})
-    print "updateLegs", updateLegs
-    db.legs.delete_many({"effectiveDate": {"$gt": yesterday}})
+    db.legs.delete_many({"effectiveDate": {"$gte": dumpDate}})  
+    # pull array values
+    db.legs.update(
+      { "effectiveDate": {"$lt": dumpDate},
+        "discontinuedDate": {"$gte": dumpDate}
+      },
+      {"$pull": {"calculatedDates": {"$gte": dumpDate}}},
+      upsert=False, 
+      multi=True
+    )
     db.legs.update(
       { "effectiveDate": {"$lt": dumpDate},
         "discontinuedDate": {"$gt": dumpDate}
       },
       {"$set": {"discontinuedDate": yesterday}}
-    )
-    # pull array values
-    db.legs.update(
-      { "effectiveDate": {"$lt": dumpDate},
-        "discontinuedDate": {"$gt": dumpDate}
-      },
-      {"$pull": {"calculatedDates": {"$gt": dumpDate}}},
-      upsert=False, 
-      multi=True
     )
   end = time.time()
   print "finished updating previous dump", end - start
