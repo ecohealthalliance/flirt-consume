@@ -25,8 +25,8 @@ def read_file(datafile):
       arrivalPieces = record.arrivalTimePub.split(":")
       departurePieces = record.departureTimePub.split(":")
       for date in dates:
-      arrivalDateTime = date.replace(hour=int(arrivalPieces[0]), minute=int(arrivalPieces[1]))
-      departureDateTime = date.replace(hour=int(departurePieces[0]), minute=int(departurePieces[1]))
+        arrivalDateTime = date.replace(hour=int(arrivalPieces[0]), minute=int(arrivalPieces[1]))
+        departureDateTime = date.replace(hour=int(departurePieces[0]), minute=int(departurePieces[1]))
         bulkFlights.insert({
           "carrier": record.carrier,
           "flightNumber": record.flightnumber,
