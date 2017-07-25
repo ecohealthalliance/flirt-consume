@@ -10,7 +10,7 @@ from time import sleep
 import sys
 import zipfile
 from settings_dev import host, db 
-import pymongo
+from pymongo import IndexModel
 import boto3
 
 ftp = ftplib.FTP()

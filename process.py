@@ -2,14 +2,14 @@ import data
 from legs import Legs
 import pandas as pd
 from settings_dev import host, db 
-import pymongo
+from pymongo import IndexModel, MongoClient, ASCENDING
 from datetime import datetime, timedelta
 import os.path
 import argparse
 import time
 
-uri = "mongodb://%s/%s" % (host, db)
-client = pymongo.MongoClient(uri)
+uri = 'mongodb://%s/%s' % (host, db)
+client = MongoClient(uri)
 db = client[db]
 parser = argparse.ArgumentParser()
 args = None
@@ -59,7 +59,6 @@ def read_file(datafile):
           "totalSeats": record.totalSeats,
           "calculatedDates": get_date_range(record.effectiveDate, record.discontinuedDate, get_day_list(record))
         })
-
     print "begin read csv"
     start = time.time()
     data = pd.read_csv(datafile, converters={'effectiveDate': convert_to_date, 'discontinuedDate': convert_to_date}, sep=',')
@@ -107,6 +106,27 @@ def get_date_range(startDate, endDate, days):
 
 def get_day_list(record):
   return [record.day1, record.day2, record.day3, record.day4, record.day5, record.day6, record.day7]
+
+def drop_indexes():
+  db.legs.drop_indexes()
+
+def create_indexes():
+  idIndex = IndexModel([("_id", ASCENDING)])
+  departureIndex = IndexModel([("departureAirport._id", ASCENDING)])
+  departEffectDiscIndex = IndexModel([
+    ("departureAirport._id", ASCENDING),
+    ("effectiveDate", ASCENDING),
+    ("discontinuedDate", ASCENDING)
+  ])
+  effectiveIndex = IndexModel([("effectiveDate", ASCENDING)])
+  discontinueIndex = IndexModel([("discontinuedDate", ASCENDING)])
+  db.legs.create_indexes([
+    idIndex,
+    departureIndex,
+    departEffectDiscIndex,
+    effectiveIndex,
+    discontinueIndex
+  ])
 
 def convert_to_date(value):
     return datetime.strptime(value, "%d/%m/%Y")
@@ -162,3 +182,8 @@ if __name__ == '__main__':
   # take list of files returned by FTP check and process them
   for csv in CSVs:
     read_file(csv)
+  print "Re-creating indexes..."
+  start = time.time()
+  create_indexes()
+  end = time.time()
+  print "Indexes re-created!", end - start
