@@ -22,11 +22,11 @@ def read_file(datafile):
     def create_flights(record):
       # create range of dates between effective/discontinued dates for this leg
       dates = get_date_range(record.effectiveDate,record.discontinuedDate, get_day_list(record))
+      arrivalPieces = record.arrivalTimePub.split(":")
+      departurePieces = record.departureTimePub.split(":")
       for date in dates:
-        arrivalPieces = record.arrivalTimePub.split(":")
-        arrivalDateTime = date.replace(hour=int(arrivalPieces[0]), minute=int(arrivalPieces[1]))
-        departurePieces = record.departureTimePub.split(":")
-        departureDateTime = date.replace(hour=int(departurePieces[0]), minute=int(departurePieces[1]))
+      arrivalDateTime = date.replace(hour=int(arrivalPieces[0]), minute=int(arrivalPieces[1]))
+      departureDateTime = date.replace(hour=int(departurePieces[0]), minute=int(departurePieces[1]))
         bulkFlights.insert({
           "carrier": record.carrier,
           "flightNumber": record.flightnumber,
@@ -69,7 +69,6 @@ def read_file(datafile):
     date = data['effectiveDate'].min()
     update_previous_dump(date,args.flights)
 
-    # data = pd.read_csv(datafile, converters={'effectiveDate': convert_to_date, 'discontinuedDate': convert_to_date}, nrows=10, sep=',')
     # we don't care about records that have more than 0 stops
     data = data.loc[data["stops"] == 0]
     print "begin processing records"
