@@ -17,17 +17,21 @@ args = None
 def read_file(datafile):
   try:
     bulk = db.legs.initialize_unordered_bulk_op()
-    bulkFlights = db.flights.initialize_unordered_bulk_op()
+    bulk_flights = None
     # will be used in future iteration of consume where we insert individual flights instead of flight schedules 
     def create_flights(record):
       # create range of dates between effective/discontinued dates for this leg
-      dates = get_date_range(record.effectiveDate,record.discontinuedDate, get_day_list(record))
+      dates = get_date_range(record)
       arrivalPieces = record.arrivalTimePub.split(":")
       departurePieces = record.departureTimePub.split(":")
+      # if the arrival time is before the departure time then we need to increment the arrival date.
+      increment_arrival_date = int(arrivalPieces[0] + arrivalPieces[1]) < int(departurePieces[0] + departurePieces[1])
       for date in dates:
         arrivalDateTime = date.replace(hour=int(arrivalPieces[0]), minute=int(arrivalPieces[1]))
+        if increment_arrival_date:
+          arrivalDateTime += timedelta(days=1)
         departureDateTime = date.replace(hour=int(departurePieces[0]), minute=int(departurePieces[1]))
-        bulkFlights.insert({
+        bulk_flights.insert({
           "carrier": record.carrier,
           "flightNumber": record.flightnumber,
           "departureAirport": record.departureAirport,
@@ -57,7 +61,7 @@ def read_file(datafile):
           "departureAirport": departureAirport,
           "arrivalAirport": arrivalAirport,
           "totalSeats": record.totalSeats,
-          "calculatedDates": get_date_range(record.effectiveDate, record.discontinuedDate, get_day_list(record))
+          "calculatedDates": get_date_range(record)
         })
     print "begin read csv"
     start = time.time()
@@ -83,9 +87,9 @@ def read_file(datafile):
       if not args.flights:
         create_leg(record)
       else:
-        bulkFlights = db.flights.initialize_unordered_bulk_op()
+        bulk_flights = db.flights.initialize_unordered_bulk_op()
         create_flights(record)
-        bulkFlights.execute()
+        bulk_flights.execute()
     try:
       bulk.execute()
     except Exception as e:
@@ -95,7 +99,10 @@ def read_file(datafile):
   except ValueError as e:
     print e
 
-def get_date_range(startDate, endDate, days):
+def get_date_range(record):
+  days = [record.day1, record.day2, record.day3, record.day4, record.day5, record.day6, record.day7]
+  startDate = record.effectiveDate
+  endDate = record.discontinuedDate
   delta = endDate - startDate
   dates = []
   for dateNumber in range(delta.days + 1):
@@ -103,9 +110,6 @@ def get_date_range(startDate, endDate, days):
     if days[date.weekday()]:
       dates.append(date)
   return dates
-
-def get_day_list(record):
-  return [record.day1, record.day2, record.day3, record.day4, record.day5, record.day6, record.day7]
 
 def drop_indexes():
   db.legs.drop_indexes()
@@ -137,11 +141,9 @@ def update_previous_dump(dumpDate, flights=False):
   start = time.time()
   # since the new dump will decide what records exist going foward we remove any 
   # previous records where the effectiveDate strays into the present
-  yesterday = dumpDate - timedelta(days=1)
   if flights:
     db.flights.delete_many({"departureDateTime": {"$gte": dumpDate}})
   else:
-    updateLegs = db.legs.find_one({ "effectiveDate": {"$lt": dumpDate}, "discontinuedDate": {"$gt": dumpDate}})
     db.legs.delete_many({"effectiveDate": {"$gte": dumpDate}})  
     # pull array values
     db.legs.update(
@@ -154,9 +156,9 @@ def update_previous_dump(dumpDate, flights=False):
     )
     db.legs.update(
       { "effectiveDate": {"$lt": dumpDate},
-        "discontinuedDate": {"$gt": dumpDate}
+        "discontinuedDate": {"$gte": dumpDate}
       },
-      {"$set": {"discontinuedDate": yesterday}}
+      {"$set": {"discontinuedDate": dumpDate - timedelta(days=1)}}
     )
   end = time.time()
   print "finished updating previous dump", end - start
