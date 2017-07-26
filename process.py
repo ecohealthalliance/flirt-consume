@@ -14,7 +14,7 @@ db = client[db]
 parser = argparse.ArgumentParser()
 args = None
 
-def read_file(datafile):
+def read_file(datafile, flights=False):
   try:
     bulk = db.legs.initialize_unordered_bulk_op()
     bulk_flights = None
@@ -70,7 +70,7 @@ def read_file(datafile):
     print "finished reading CSV", end - start
 
     date = data['effectiveDate'].min()
-    update_previous_dump(date,args.flights)
+    update_previous_dump(date,flights)
 
     # we don't care about records that have more than 0 stops
     data = data.loc[data["stops"] == 0]
@@ -183,7 +183,7 @@ if __name__ == '__main__':
     CSVs = data.check_ftp()
   # take list of files returned by FTP check and process them
   for csv in CSVs:
-    read_file(csv)
+    read_file(csv, args.flights)
   print "Re-creating indexes..."
   start = time.time()
   create_indexes()
