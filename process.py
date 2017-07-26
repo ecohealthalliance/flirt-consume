@@ -88,7 +88,7 @@ def read_file(datafile):
         bulkFlights.execute()
     try:
       bulk.execute()
-    except pymongo.errors.InvalidOperation as e:
+    except Exception as e:
       print "Problem bulk executing schedule data:", e
     end = time.time()
     print "done processing records", end - start
