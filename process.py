@@ -7,6 +7,7 @@ from datetime import datetime, timedelta
 import os.path
 import argparse
 import time
+from dateutil import tz
 
 uri = 'mongodb://%s/%s' % (host, db)
 client = MongoClient(uri)
@@ -26,11 +27,25 @@ def read_file(datafile, flights=False):
       departurePieces = record.departureTimePub.split(":")
       # if the arrival time is before the departure time then we need to increment the arrival date.
       increment_arrival_date = int(arrivalPieces[0] + arrivalPieces[1]) < int(departurePieces[0] + departurePieces[1])
+
+      # get arrival timezone - comes in the format "+0200"  First two numbers are the hour and second two are the minute.
+      arrivalHour = int(record.arrivalUTCVariance[:3])
+      arrivalMinute = int(record.arrivalUTCVariance[3:])
+      tzArrival = tz.tzoffset(None, (arrivalHour * 3600) + (arrivalMinute * 60))
+      # get departure timezone
+      departureHour = int(record.departureUTCVariance[:3])
+      departureMinute = int(record.departureUTCVariance[3:])
+      tzDeparture = tz.tzoffset(None, (departureHour * 3600) + (departureMinute * 60))
+
       for date in dates:
-        arrivalDateTime = date.replace(hour=int(arrivalPieces[0]), minute=int(arrivalPieces[1]))
+        # set times and timezone.  If the departure time is AFTER the arrival time we can 
+        # assume the flight lands the next day and we need to increment the date
+        arrivalDateTime = date.replace(hour=int(arrivalPieces[0]), minute=int(arrivalPieces[1]), tzinfo=tzArrival)
         if increment_arrival_date:
           arrivalDateTime += timedelta(days=1)
-        departureDateTime = date.replace(hour=int(departurePieces[0]), minute=int(departurePieces[1]))
+
+        departureDateTime = date.replace(hour=int(departurePieces[0]), minute=int(departurePieces[1]), tzinfo=tzDeparture)
+
         bulk_flights.insert({
           "carrier": record.carrier,
           "flightNumber": record.flightnumber,
@@ -65,7 +80,7 @@ def read_file(datafile, flights=False):
         })
     print "begin read csv"
     start = time.time()
-    data = pd.read_csv(datafile, converters={'effectiveDate': convert_to_date, 'discontinuedDate': convert_to_date}, sep=',')
+    data = pd.read_csv(datafile, dtype={'arrivalUTCVariance': str, 'departureUTCVariance': str}, converters={'effectiveDate': convert_to_date, 'discontinuedDate': convert_to_date}, sep=',')
     end = time.time()
     print "finished reading CSV", end - start
 
