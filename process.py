@@ -25,17 +25,20 @@ def read_file(datafile, flights=False):
       dates = get_date_range(record)
       arrivalPieces = record.arrivalTimePub.split(":")
       departurePieces = record.departureTimePub.split(":")
-      # if the arrival time is before the departure time then we need to increment the arrival date.
-      increment_arrival_date = int(arrivalPieces[0] + arrivalPieces[1]) < int(departurePieces[0] + departurePieces[1])
 
       # get arrival timezone - comes in the format "+0200"  First two numbers are the hour and second two are the minute.
       arrivalHour = int(record.arrivalUTCVariance[:3])
       arrivalMinute = int(record.arrivalUTCVariance[3:])
+      arrivalOffset = int(record.arrivalUTCVariance)
       tzArrival = tz.tzoffset(None, (arrivalHour * 3600) + (arrivalMinute * 60))
       # get departure timezone
       departureHour = int(record.departureUTCVariance[:3])
       departureMinute = int(record.departureUTCVariance[3:])
+      departureOffset = int(record.departureUTCVariance)
       tzDeparture = tz.tzoffset(None, (departureHour * 3600) + (departureMinute * 60))
+
+      # if the arrival time is before the departure time then we need to increment the arrival date.
+      increment_arrival_date = (int(arrivalPieces[0] + arrivalPieces[1]) + arrivalOffset) < (int(departurePieces[0] + departurePieces[1]) + departureOffset)
 
       for date in dates:
         # set times and timezone.  If the departure time is AFTER the arrival time we can 
