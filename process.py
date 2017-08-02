@@ -18,6 +18,7 @@ args = None
 def read_file(datafile, flights=False):
   try:
     bulk = db.legs.initialize_unordered_bulk_op()
+    bulk_schedule = db.schedules.initialize_unordered_bulk_op()
     bulk_flights = None
     # will be used in future iteration of consume where we insert individual flights instead of flight schedules 
     def create_flights(record):
@@ -64,7 +65,7 @@ def read_file(datafile, flights=False):
       arrivalAirport = db.airports.find_one({"_id": record.arrivalAirport})
       # set the effective date of the current record to today and insert it
       # NOTE - leaving out stops and stop codes.  Will this break existing FLIRT
-      bulk.insert({
+      insert_record = {
           "carrier": record.carrier,
           "flightNumber": record.flightnumber,
           "day1": record.day1 == 1,
@@ -79,8 +80,11 @@ def read_file(datafile, flights=False):
           "departureAirport": departureAirport,
           "arrivalAirport": arrivalAirport,
           "totalSeats": record.totalSeats,
-          "calculatedDates": get_date_range(record)
-        })
+          "calculatedDates": get_date_range(record),
+          "scheduleFileName": os.path.basename(datafile)
+        }
+      bulk.insert(insert_record)
+      bulk_schedule.insert(insert_record)
     print "begin read csv"
     start = time.time()
     data = pd.read_csv(datafile, dtype={'arrivalUTCVariance': str, 'departureUTCVariance': str}, converters={'effectiveDate': convert_to_date, 'discontinuedDate': convert_to_date}, sep=',')
@@ -110,6 +114,7 @@ def read_file(datafile, flights=False):
         bulk_flights.execute()
     try:
       bulk.execute()
+      bulk_schedule.execute()
     except Exception as e:
       print "Problem bulk executing schedule data:", e
     end = time.time()
