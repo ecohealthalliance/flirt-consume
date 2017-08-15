@@ -84,6 +84,7 @@ def read_file(datafile, flights=False):
         }
       bulk.insert(insert_record)
       bulk_schedule.insert(insert_record)
+
     print "begin read csv", datafile
     start = time.time()
     data = pd.read_csv(datafile, dtype={'arrivalUTCVariance': str, 'departureUTCVariance': str}, converters={'effectiveDate': convert_to_date, 'discontinuedDate': convert_to_date}, sep=',')
@@ -100,6 +101,13 @@ def read_file(datafile, flights=False):
     for index, record in data.iterrows():
       if index % 10000 == 0:
         end = time.time()
+        try:
+          bulk.execute()
+          bulk_schedule.execute()
+          bulk = db.legs.initialize_unordered_bulk_op()
+          bulk_schedule = db.schedules.initialize_unordered_bulk_op()
+        except Exception as e:
+          print "Problem bulk executing schedule data:", e
         print "processed", index, "legs in", end - start
       # if record has stops != 0 then don't process record. AKA if stops == 0 we process the record
       if record.stops > 0:
