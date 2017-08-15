@@ -132,7 +132,7 @@ class FtpEntry:
     self.type = self.__getValue(entry[0])
     self.size = float(self.__getValue(entry[1]))
     self.modify = datetime.strptime(self.__getValue(entry[2]), '%Y%m%d%H%M%S.%f')
-    self.name = entry[3]
+    self.name = entry[3].strip()
     self.extension = os.path.splitext(entry[3])[1]
     # we are assuming that zip files that do not have an entry in the "processedFiles" collection need to be processed 
     self.needs_to_be_processed = self.extension == ".zip" and flirt_db.processedFiles.find_one({'fileName': self.name}) == None
