@@ -10,7 +10,7 @@ from time import sleep
 import sys
 import zipfile
 from settings_dev import host, db 
-from pymongo import IndexModel
+from pymongo import IndexModel, MongoClient
 import boto3
 
 ftp = ftplib.FTP()
@@ -126,7 +126,7 @@ class FtpEntry:
   def __init__(self, entry):
     # db = data.FlirtDB().db
     uri = 'mongodb://%s/%s' % (host, db)
-    client = pymongo.MongoClient(uri)
+    client = MongoClient(uri)
     flirt_db = client['flirt']
     entry =  entry.split(";")
     self.type = self.__getValue(entry[0])

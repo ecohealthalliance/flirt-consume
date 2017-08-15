@@ -1,5 +1,4 @@
 import data
-from legs import Legs
 import pandas as pd
 from settings_dev import host, db 
 from pymongo import IndexModel, MongoClient, ASCENDING
