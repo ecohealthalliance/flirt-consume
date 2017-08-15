@@ -84,7 +84,7 @@ def read_file(datafile, flights=False):
         }
       bulk.insert(insert_record)
       bulk_schedule.insert(insert_record)
-    print "begin read csv"
+    print "begin read csv", datafile
     start = time.time()
     data = pd.read_csv(datafile, dtype={'arrivalUTCVariance': str, 'departureUTCVariance': str}, converters={'effectiveDate': convert_to_date, 'discontinuedDate': convert_to_date}, sep=',')
     end = time.time()
