@@ -167,7 +167,7 @@ def create_indexes():
   ])
 
 def convert_to_date(value):
-    return datetime.strptime(value, "%d/%m/%Y")
+    return datetime.datetime.strptime(value, "%d/%m/%Y")
 
 def update_previous_dump(dumpDate, flights=False):
   #update the discontinued date for all of the previous legs to the date of the current datafile
