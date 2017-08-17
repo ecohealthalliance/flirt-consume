@@ -3,6 +3,7 @@ import pandas as pd
 from settings_dev import host, db 
 from pymongo import IndexModel, MongoClient, ASCENDING
 from datetime import datetime, timedelta
+import datetime
 import os.path
 import argparse
 import time
@@ -14,76 +15,82 @@ db = client[db]
 parser = argparse.ArgumentParser()
 args = None
 
+def get_utc_time(time_str, utc_variance):
+  [hours, minutes] = map(int, time_str.split(":"))
+  utc_variance_sign = int(utc_variance[0] + "1")
+  utc_variance_hours = int(utc_variance[1:3])
+  utc_variance_minutes = int(utc_variance[3:])
+  utc_formater_date = datetime.datetime(2000, 1, 1,
+    hours, minutes)
+  utc_formater_date -= (utc_variance_sign * timedelta(
+    hours=utc_variance_hours,
+    minutes=utc_variance_minutes))
+  return utc_formater_date.strftime("%H:%M")
+
+def create_leg(record, schedule_file_name):
+  departure_airport = db.airports.find_one({"_id": record.departureAirport})
+  arrival_airport = db.airports.find_one({"_id": record.arrivalAirport})
+  # set the effective date of the current record to today and insert it
+  # NOTE - leaving out stops and stop codes.  Will this break existing FLIRT
+  return {
+    "carrier": record.carrier,
+    "flightNumber": record.flightnumber,
+    "day1": record.day1 == 1,
+    "day2": record.day2 == 1,
+    "day3": record.day3 == 1,
+    "day4": record.day4 == 1,
+    "day5": record.day5 == 1,
+    "day6": record.day6 == 1,
+    "day7": record.day7 == 1,
+    "effectiveDate": record.effectiveDate,
+    "discontinuedDate": record.discontinuedDate,
+    "departureAirport": departure_airport,
+    "arrivalAirport": arrival_airport,
+    "totalSeats": record.totalSeats,
+    "calculatedDates": get_date_range(record),
+    "scheduleFileName": schedule_file_name,
+    "arrivalTimeUTC": get_utc_time(record.arrivalTimePub,
+                                   record.arrivalUTCVariance),
+    "departureTimeUTC": get_utc_time(record.departureTimePub,
+                                     record.departureUTCVariance)
+  }
+
+def create_flights(record):
+  # create range of dates between effective/discontinued dates for this leg
+  dates = get_date_range(record)
+  arrival_time_utc = get_utc_time(record.arrivalTimePub, record.arrivalUTCVariance)
+  departure_time_utc = get_utc_time(record.departureTimePub, record.departureUTCVariance)
+
+  increment_arrival_date = arrival_time_utc <= departure_time_utc
+
+  for date in dates:
+    arrival_date_time = date.replace(
+      hour=int(arrival_time_utc.split(':')[0]),
+      minute=int(arrival_time_utc.split(':')[1]))
+    # assume the flight lands the next day and we need to increment the date
+    if increment_arrival_date:
+      arrival_date_time += timedelta(days=1)
+
+    departure_date_time = date.replace(
+      hour=int(departure_time_utc.split(':')[0]),
+      minute=int(departure_time_utc.split(':')[1]))
+
+    yield {
+      "carrier": record.carrier,
+      "flightNumber": record.flightnumber,
+      "departureAirport": record.departureAirport,
+      "arrivalAirport": record.arrivalAirport,
+      "totalSeats": record.totalSeats,
+      "departureDateTime": departure_date_time,
+      "arrivalDateTime": arrival_date_time
+    }
+
 def read_file(datafile, flights=False):
   try:
     bulk = db.legs.initialize_unordered_bulk_op()
     bulk_schedule = db.schedules.initialize_unordered_bulk_op()
     bulk_flights = None
-    # will be used in future iteration of consume where we insert individual flights instead of flight schedules 
-    def create_flights(record):
-      # create range of dates between effective/discontinued dates for this leg
-      dates = get_date_range(record)
-      arrivalPieces = record.arrivalTimePub.split(":")
-      departurePieces = record.departureTimePub.split(":")
 
-      # get arrival timezone - comes in the format "+0200"  First two numbers are the hour and second two are the minute.
-      arrivalHour = int(record.arrivalUTCVariance[:3])
-      arrivalMinute = int(record.arrivalUTCVariance[3:])
-      arrivalOffset = int(record.arrivalUTCVariance)
-      tzArrival = tz.tzoffset(None, (arrivalHour * 3600) + (arrivalMinute * 60))
-      # get departure timezone
-      departureHour = int(record.departureUTCVariance[:3])
-      departureMinute = int(record.departureUTCVariance[3:])
-      departureOffset = int(record.departureUTCVariance)
-      tzDeparture = tz.tzoffset(None, (departureHour * 3600) + (departureMinute * 60))
-
-      # if the arrival time is before the departure time then we need to increment the arrival date.
-      increment_arrival_date = (int(arrivalPieces[0] + arrivalPieces[1]) + arrivalOffset) < (int(departurePieces[0] + departurePieces[1]) + departureOffset)
-
-      for date in dates:
-        # set times and timezone.  If the departure time is AFTER the arrival time we can 
-        # assume the flight lands the next day and we need to increment the date
-        arrivalDateTime = date.replace(hour=int(arrivalPieces[0]), minute=int(arrivalPieces[1]), tzinfo=tzArrival)
-        if increment_arrival_date:
-          arrivalDateTime += timedelta(days=1)
-
-        departureDateTime = date.replace(hour=int(departurePieces[0]), minute=int(departurePieces[1]), tzinfo=tzDeparture)
-
-        bulk_flights.insert({
-          "carrier": record.carrier,
-          "flightNumber": record.flightnumber,
-          "departureAirport": record.departureAirport,
-          "arrivalAirport": record.arrivalAirport,
-          "totalSeats": record.totalSeats,
-          "departureDateTime": departureDateTime,
-          "arrivalDateTime": arrivalDateTime
-        })
-
-    def create_leg(record):
-      departureAirport = db.airports.find_one({"_id": record.departureAirport})
-      arrivalAirport = db.airports.find_one({"_id": record.arrivalAirport})
-      # set the effective date of the current record to today and insert it
-      # NOTE - leaving out stops and stop codes.  Will this break existing FLIRT
-      insert_record = {
-          "carrier": record.carrier,
-          "flightNumber": record.flightnumber,
-          "day1": record.day1 == 1,
-          "day2": record.day2 == 1,
-          "day3": record.day3 == 1,
-          "day4": record.day4 == 1,
-          "day5": record.day5 == 1,
-          "day6": record.day6 == 1,
-          "day7": record.day7 == 1,
-          "effectiveDate": record.effectiveDate,
-          "discontinuedDate": record.discontinuedDate,
-          "departureAirport": departureAirport,
-          "arrivalAirport": arrivalAirport,
-          "totalSeats": record.totalSeats,
-          "calculatedDates": get_date_range(record),
-          "scheduleFileName": os.path.basename(datafile)
-        }
-      bulk.insert(insert_record)
-      bulk_schedule.insert(insert_record)
     print "begin read csv", datafile
     start = time.time()
     data = pd.read_csv(datafile, dtype={'arrivalUTCVariance': str, 'departureUTCVariance': str}, converters={'effectiveDate': convert_to_date, 'discontinuedDate': convert_to_date}, sep=',')
@@ -106,10 +113,15 @@ def read_file(datafile, flights=False):
         return
 
       if not args.flights:
-        create_leg(record)
+        insert_record = create_leg(record, os.path.basename(datafile))
+        bulk.insert(insert_record)
+        bulk_schedule.insert(insert_record)
       else:
+        # The flights collection will be used in future iteration of consume
+        # where we insert individual flights instead of flight schedules
         bulk_flights = db.flights.initialize_unordered_bulk_op()
-        create_flights(record)
+        for flight in create_flights(record):
+          bulk_flights.insert(flight)
         bulk_flights.execute()
     try:
       bulk.execute()
@@ -155,7 +167,7 @@ def create_indexes():
   ])
 
 def convert_to_date(value):
-    return datetime.strptime(value, "%d/%m/%Y")
+    return datetime.datetime.strptime(value, "%d/%m/%Y")
 
 def update_previous_dump(dumpDate, flights=False):
   #update the discontinued date for all of the previous legs to the date of the current datafile
