@@ -20,9 +20,9 @@ def get_utc_time(time_str, utc_variance):
   utc_variance_sign = int(utc_variance[0] + "1")
   utc_variance_hours = int(utc_variance[1:3])
   utc_variance_minutes = int(utc_variance[3:])
-  utc_formater_date = datetime.date(2000, 1, 1,
-    utc_variance_hours, utc_variance_minutes)
-  utc_formater_date += (utc_variance_sign * timedelta(
+  utc_formater_date = datetime.datetime(2000, 1, 1,
+    hours, minutes)
+  utc_formater_date -= (utc_variance_sign * timedelta(
     hours=utc_variance_hours,
     minutes=utc_variance_minutes))
   return utc_formater_date.strftime("%H:%M")
