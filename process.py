@@ -7,7 +7,6 @@ import datetime
 import os.path
 import argparse
 import time
-from dateutil import tz
 
 uri = 'mongodb://%s/%s' % (host, db)
 client = MongoClient(uri)
@@ -15,17 +14,23 @@ db = client[db]
 parser = argparse.ArgumentParser()
 args = None
 
-def get_utc_time(time_str, utc_variance):
+def get_utc_datetime(time_str, utc_variance, base_date):
   [hours, minutes] = map(int, time_str.split(":"))
   utc_variance_sign = int(utc_variance[0] + "1")
   utc_variance_hours = int(utc_variance[1:3])
   utc_variance_minutes = int(utc_variance[3:])
-  utc_formater_date = datetime.datetime(2000, 1, 1,
-    hours, minutes)
-  utc_formater_date -= (utc_variance_sign * timedelta(
+  base_date = base_date.replace(
+    hour=hours,
+    minute=minutes)
+  base_date -= (utc_variance_sign * timedelta(
     hours=utc_variance_hours,
     minutes=utc_variance_minutes))
-  return utc_formater_date.strftime("%H:%M")
+  return base_date
+
+def get_utc_time(time_str, utc_variance):
+  return get_utc_datetime(
+    time_str, utc_variance,
+    datetime.datetime(2000, 1, 1)).strftime("%H:%M")
 
 def create_leg(record, schedule_file_name):
   departure_airport = db.airports.find_one({"_id": record.departureAirport})
@@ -57,32 +62,22 @@ def create_leg(record, schedule_file_name):
 
 def create_flights(record):
   # create range of dates between effective/discontinued dates for this leg
-  dates = get_date_range(record)
-  arrival_time_utc = get_utc_time(record.arrivalTimePub, record.arrivalUTCVariance)
-  departure_time_utc = get_utc_time(record.departureTimePub, record.departureUTCVariance)
-
-  increment_arrival_date = arrival_time_utc <= departure_time_utc
-
-  for date in dates:
-    arrival_date_time = date.replace(
-      hour=int(arrival_time_utc.split(':')[0]),
-      minute=int(arrival_time_utc.split(':')[1]))
-    # assume the flight lands the next day and we need to increment the date
-    if increment_arrival_date:
-      arrival_date_time += timedelta(days=1)
-
-    departure_date_time = date.replace(
-      hour=int(departure_time_utc.split(':')[0]),
-      minute=int(departure_time_utc.split(':')[1]))
-
+  for date in get_date_range(record):
+    arrival_datetime = get_utc_datetime(
+      record.arrivalTimePub, record.arrivalUTCVariance, date)
+    departure_datetime = get_utc_datetime(
+      record.departureTimePub, record.departureUTCVariance, date)
+    if arrival_datetime <= departure_datetime:
+      # assume the flight lands the next day
+      arrival_datetime += timedelta(days=1)
     yield {
       "carrier": record.carrier,
       "flightNumber": record.flightnumber,
       "departureAirport": record.departureAirport,
       "arrivalAirport": record.arrivalAirport,
       "totalSeats": record.totalSeats,
-      "departureDateTime": departure_date_time,
-      "arrivalDateTime": arrival_date_time
+      "departureDateTime": departure_datetime,
+      "arrivalDateTime": arrival_datetime
     }
 
 def read_file(datafile, flights=False):
