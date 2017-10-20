@@ -50,16 +50,18 @@ def create_leg(record, schedule_file_name):
         "calculatedDates": get_date_range(record),
         "scheduleFileName": schedule_file_name,
         "arrivalTimeUTC": get_utc_time(record.arrivalTimePub,
-                                                                     record.arrivalUTCVariance),
+                                       record.arrivalUTCVariance),
         "departureTimeUTC": get_utc_time(record.departureTimePub,
-                                                                         record.departureUTCVariance)
+                                         record.departureUTCVariance)
     }
 
 def create_flights(record):
     # create range of dates between effective/discontinued dates for this leg
     dates = get_date_range(record)
-    arrival_time_utc = get_utc_time(record.arrivalTimePub, record.arrivalUTCVariance)
-    departure_time_utc = get_utc_time(record.departureTimePub, record.departureUTCVariance)
+    arrival_time_utc = get_utc_time(record.arrivalTimePub,
+                                    record.arrivalUTCVariance)
+    departure_time_utc = get_utc_time(record.departureTimePub,
+                                      record.departureUTCVariance)
 
     increment_arrival_date = arrival_time_utc <= departure_time_utc
 
@@ -202,6 +204,7 @@ if __name__ == '__main__':
 
     parser.add_argument("-s", "--s3", help="Specify that files should be downloaded from S3", action="store_true")
     parser.add_argument("-f", "--flights", help="Only update the individual Flights collection", action="store_true")
+    parser.add_argument("-p", "--path", help="Read CSV files from provided local directory path")
     args = parser.parse_args()
 
     # setup a way to read backlog of files from S3 instead of reading files from FlightGlobal FTP
@@ -211,6 +214,9 @@ if __name__ == '__main__':
         print "processing S3"
         CSVs = data.pull_from_s3()
         CSVs.sort()
+    elif args.path is not None:
+        print "extracting csvs from zips at supplied path"
+        CSVs = data.csvs_from_zips_at_path(args.path)
     else:
         print "processing FTP"
         # check FTP

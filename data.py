@@ -1,4 +1,4 @@
-# Handles pulling data files from both FTP and the S3 archive
+# Handles pulling data files from both FTP and the S3 archive, as well as unzipping local files.
 
 from settings_dev import url, uname, pwd
 import ftplib
@@ -60,7 +60,7 @@ def sortByModified( a_string ):
         modified = entry_attr[2].strip()
         return modified
 
-#downloads an unprocessed file from FlightGlobal's FTP 
+# Downloads an unprocessed file from FlightGlobal's FTP 
 def download_file(ftp_entry):
     data_directory = os.path.join(os.getcwd(), 'data')
     file_name = ftp_entry.name.strip()
@@ -119,6 +119,14 @@ def read_files():
             file_path = download_file(ftp_entry)
             csv = extract_file(file_path)
             CSVs.append(csv)
+    return CSVs
+
+def csvs_from_zips_at_path(path):
+    zipfiles = filter(lambda x: x.endswith("zip"), [os.path.join(path, s) for s in os.listdir(path)])
+    for file in zipfiles:
+        file_path = os.path.join(path, file)
+        extract_file(file_path)
+    CSVs = filter(lambda x: x.endswith("csv"), [os.path.join(path, s) for s in os.listdir(path)])
     return CSVs
 
 class FtpEntry:
