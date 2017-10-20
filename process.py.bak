@@ -93,11 +93,11 @@ def read_file(datafile, flights=False):
         bulk_schedule = db.schedules.initialize_unordered_bulk_op()
         bulk_flights = None
 
-        print(("begin read csv", datafile))
+        print("begin read csv", datafile)
         start = time.time()
         data = pd.read_csv(datafile, dtype={'arrivalUTCVariance': str, 'departureUTCVariance': str}, converters={'effectiveDate': convert_to_date, 'discontinuedDate': convert_to_date}, sep=',')
         end = time.time()
-        print(("finished reading CSV", end - start))
+        print("finished reading CSV", end - start)
 
         date = data['effectiveDate'].min()
         update_previous_dump(date,flights)
@@ -109,7 +109,7 @@ def read_file(datafile, flights=False):
         for index, record in data.iterrows():
             if index % 10000 == 0:
                 end = time.time()
-                print(("processed", index, "legs in", end - start))
+                print("processed", index, "legs in", end - start)
             # if record has stops != 0 then don't process record. AKA if stops == 0 we process the record
             if record.stops > 0:
                 return
@@ -129,9 +129,9 @@ def read_file(datafile, flights=False):
             bulk.execute()
             bulk_schedule.execute()
         except Exception as e:
-            print(("Problem bulk executing schedule data:", e))
+            print("Problem bulk executing schedule data:", e)
         end = time.time()
-        print(("done processing records", end - start))
+        print("done processing records", end - start)
     except ValueError as e:
         print(e)
 
@@ -173,7 +173,7 @@ def convert_to_date(value):
 
 def update_previous_dump(dumpDate, flights=False):
     #update the discontinued date for all of the previous legs to the date of the current datafile
-    print(("update previous dump", dumpDate))
+    print("update previous dump", dumpDate)
     start = time.time()
     # since the new dump will decide what records exist going foward we remove any 
     # previous records where the effectiveDate strays into the present
@@ -197,7 +197,7 @@ def update_previous_dump(dumpDate, flights=False):
             {"$set": {"discontinuedDate": dumpDate - timedelta(days=1)}}
         )
     end = time.time()
-    print(("finished updating previous dump", end - start))
+    print("finished updating previous dump", end - start)
 
 
 if __name__ == '__main__':
@@ -228,4 +228,4 @@ if __name__ == '__main__':
     start = time.time()
     create_indexes()
     end = time.time()
-    print(("Indexes re-created!", end - start))
+    print("Indexes re-created!", end - start)
