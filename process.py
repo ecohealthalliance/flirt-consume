@@ -5,14 +5,12 @@ from pymongo import IndexModel, MongoClient, ASCENDING
 from datetime import datetime, timedelta
 import datetime
 import os.path
-import argparse
 import time
+import traceback
 
 uri = 'mongodb://%s/%s' % (host, db)
 client = MongoClient(uri)
 db = client[db]
-parser = argparse.ArgumentParser()
-args = None
 
 def get_utc_datetime(time_str, utc_variance, base_date):
   [hours, minutes] = map(int, time_str.split(":"))
@@ -107,7 +105,7 @@ def read_file(datafile, flights=False):
       if record.stops > 0:
         return
 
-      if not args.flights:
+      if not flights:
         insert_record = create_leg(record, os.path.basename(datafile))
         bulk.insert(insert_record)
         bulk_schedule.insert(insert_record)
@@ -126,6 +124,7 @@ def read_file(datafile, flights=False):
     end = time.time()
     print "done processing records", end - start
   except ValueError as e:
+    traceback.print_stack()
     print e
 
 def get_date_range(record):
@@ -194,7 +193,8 @@ def update_previous_dump(dumpDate, flights=False):
 
 
 if __name__ == '__main__':
-
+  import argparse
+  parser = argparse.ArgumentParser()
   parser.add_argument("-s", "--s3", help="Specify that files should be downloaded from S3", action="store_true")
   parser.add_argument("-f", "--flights", help="Only update the individual Flights collection", action="store_true")
   args = parser.parse_args()
