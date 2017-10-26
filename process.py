@@ -7,13 +7,14 @@ import datetime
 import os.path
 import time
 import traceback
+import sys
 
 uri = 'mongodb://%s/%s' % (host, db)
 client = MongoClient(uri)
 db = client[db]
 
 def get_utc_datetime(time_str, utc_variance, base_date):
-  [hours, minutes] = map(int, time_str.split(":"))
+  [hours, minutes, seconds] = map(int, time_str.split(":"))
   utc_variance_sign = int(utc_variance[0] + "1")
   utc_variance_hours = int(utc_variance[1:3])
   utc_variance_minutes = int(utc_variance[3:])
@@ -124,7 +125,7 @@ def read_file(datafile, flights=False):
     end = time.time()
     print "done processing records", end - start
   except ValueError as e:
-    traceback.print_stack()
+    print '\n'.join([str(i) for i in sys.exc_info()])
     print e
 
 def get_date_range(record):
