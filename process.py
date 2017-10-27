@@ -67,7 +67,7 @@ def create_leg(record, schedule_file_name):
 
 def create_flights(record):
   carrier = record.carrier
-  fightnumber = record.flightnumber
+  flightnumber = record.flightnumber
   departureAirport = record.departureAirport
   arrivalAirport = record.arrivalAirport
   totalSeats = record.totalSeats
@@ -109,7 +109,7 @@ def read_file(datafile, flights=False):
     print("finished reading CSV", end - start)
 
     date = data['effectiveDate'].min()
-    update_previous_dump(date,flights)
+    update_previous_dump(date, flights)
 
     # filter out rows with stops
     data = data.loc[data["stops"] == 0]
@@ -217,7 +217,7 @@ if __name__ == '__main__':
   parser = argparse.ArgumentParser()
   parser.add_argument("-s", "--s3", help="Specify that files should be downloaded from S3", action="store_true")
   parser.add_argument("-f", "--flights", help="Only update the individual Flights collection", action="store_true")
-  parser.add_argument('csvs', nargs='+', help='Paths to specific CSVs to be processed.')
+  parser.add_argument('csvs', nargs='*', help='Paths to specific CSVs to be processed.')
   args = parser.parse_args()
 
   if args.csvs:
