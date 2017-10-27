@@ -1,3 +1,4 @@
+from __future__ import print_function
 import data
 import pandas as pd
 from settings_dev import host, db 
@@ -85,23 +86,23 @@ def read_file(datafile, flights=False):
     bulk_schedule = db.schedules.initialize_unordered_bulk_op()
     bulk_flights = None
 
-    print "begin read csv", datafile
+    print("begin read csv", datafile)
     start = time.time()
     data = pd.read_csv(datafile, dtype={'arrivalUTCVariance': str, 'departureUTCVariance': str}, converters={'effectiveDate': convert_to_date, 'discontinuedDate': convert_to_date}, sep=',')
     end = time.time()
-    print "finished reading CSV", end - start
+    print("finished reading CSV", end - start)
 
     date = data['effectiveDate'].min()
     update_previous_dump(date,flights)
 
     # we don't care about records that have more than 0 stops
     data = data.loc[data["stops"] == 0]
-    print "begin processing records"
+    print("begin processing records")
     start = time.time()
     for index, record in data.iterrows():
       if index % 10000 == 0:
         end = time.time()
-        print "processed", index, "legs in", end - start
+        print("processed", index, "legs in", end - start)
       # if record has stops != 0 then don't process record. AKA if stops == 0 we process the record
       if record.stops > 0:
         return
@@ -121,12 +122,12 @@ def read_file(datafile, flights=False):
       bulk.execute()
       bulk_schedule.execute()
     except Exception as e:
-      print "Problem bulk executing schedule data:", e
+      print("Problem bulk executing schedule data:", e)
     end = time.time()
-    print "done processing records", end - start
+    print("done processing records", end - start)
   except ValueError as e:
-    print '\n'.join([str(i) for i in sys.exc_info()])
-    print e
+    print('\n'.join([str(i) for i in sys.exc_info()]))
+    print(e)
 
 def get_date_range(record):
   days = [record.day1, record.day2, record.day3, record.day4, record.day5, record.day6, record.day7]
@@ -166,7 +167,7 @@ def convert_to_date(value):
 
 def update_previous_dump(dumpDate, flights=False):
   #update the discontinued date for all of the previous legs to the date of the current datafile
-  print "update previous dump", dumpDate
+  print("update previous dump", dumpDate)
   start = time.time()
   # since the new dump will decide what records exist going foward we remove any 
   # previous records where the effectiveDate strays into the present
@@ -190,7 +191,7 @@ def update_previous_dump(dumpDate, flights=False):
       {"$set": {"discontinuedDate": dumpDate - timedelta(days=1)}}
     )
   end = time.time()
-  print "finished updating previous dump", end - start
+  print("finished updating previous dump", end - start)
 
 
 if __name__ == '__main__':
@@ -204,18 +205,18 @@ if __name__ == '__main__':
   CSVs = None
   # if user specified S3 as data source pull from there
   if args.s3:
-    print "processing S3"
+    print("processing S3")
     CSVs = data.pull_from_s3()
     CSVs.sort()
   else:
-    print "processing FTP"
+    print("processing FTP")
     # check FTP
     CSVs = data.check_ftp()
   # take list of files returned by FTP check and process them
   for csv in CSVs:
     read_file(csv, args.flights)
-  print "Re-creating indexes..."
+  print("Re-creating indexes...")
   start = time.time()
   create_indexes()
   end = time.time()
-  print "Indexes re-created!", end - start
+  print("Indexes re-created!", end - start)

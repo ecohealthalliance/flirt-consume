@@ -1,6 +1,7 @@
 """
 Tests the data import process for correct insert and delete behavior across multiple import files.
 """
+from __future__ import print_function
 import unittest
 import os, sys
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
