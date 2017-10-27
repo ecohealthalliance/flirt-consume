@@ -82,10 +82,6 @@ def create_flights(record):
 
 def read_file(datafile, flights=False):
   try:
-    bulk = db.legs.initialize_unordered_bulk_op()
-    bulk_schedule = db.schedules.initialize_unordered_bulk_op()
-    bulk_flights = None
-
     print("begin read csv", datafile)
     start = time.time()
     data = pd.read_csv(datafile, dtype={'arrivalUTCVariance': str, 'departureUTCVariance': str}, converters={'effectiveDate': convert_to_date, 'discontinuedDate': convert_to_date}, sep=',')
@@ -95,34 +91,36 @@ def read_file(datafile, flights=False):
     date = data['effectiveDate'].min()
     update_previous_dump(date,flights)
 
-    # we don't care about records that have more than 0 stops
+    # filter out rows with stops
     data = data.loc[data["stops"] == 0]
     print("begin processing records")
     start = time.time()
-    for index, record in data.iterrows():
-      if index % 10000 == 0:
-        end = time.time()
-        print("processed", index, "legs in", end - start)
-      # if record has stops != 0 then don't process record. AKA if stops == 0 we process the record
-      if record.stops > 0:
-        return
-
-      if not flights:
-        insert_record = create_leg(record, os.path.basename(datafile))
-        bulk.insert(insert_record)
-        bulk_schedule.insert(insert_record)
-      else:
-        # The flights collection will be used in future iteration of consume
-        # where we insert individual flights instead of flight schedules
-        bulk_flights = db.flights.initialize_unordered_bulk_op()
+    if flights:
+      bulk_flights = None
+      for index, record in data.iterrows():
+        if index % 10000 == 0:
+          if bulk_flights:
+            bulk_flights.execute()
+          bulk_flights = db.flights.initialize_unordered_bulk_op()
+          end = time.time()
+          print("processed", index, "rows in", end - start)
         for flight in create_flights(record):
           bulk_flights.insert(flight)
-        bulk_flights.execute()
-    try:
-      bulk.execute()
-      bulk_schedule.execute()
-    except Exception as e:
-      print("Problem bulk executing schedule data:", e)
+    else:
+      bulk_legs = None
+      bulk_schedule = None
+      for index, record in data.iterrows():
+        if index % 10000 == 0:
+          if bulk_legs:
+            bulk_legs.execute()
+            bulk_schedule.execute()
+          bulk_legs = db.legs.initialize_unordered_bulk_op()
+          bulk_schedule = db.schedules.initialize_unordered_bulk_op()
+          end = time.time()
+          print("processed", index, "rows in", end - start)
+        insert_record = create_leg(record, os.path.basename(datafile))
+        bulk_legs.insert(insert_record)
+        bulk_schedule.insert(insert_record)
     end = time.time()
     print("done processing records", end - start)
   except ValueError as e:
