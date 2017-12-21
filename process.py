@@ -220,6 +220,11 @@ if __name__ == '__main__':
   parser.add_argument('csvs', nargs='*', help='Paths to specific CSVs to be processed.')
   args = parser.parse_args()
 
+  # Omit previously imported schedules.
+  schedule_file_groups = db.schedules.aggregate([{'$group':{'_id':"$scheduleFileName"}}])
+  schedule_files_to_omit = []
+  for group in schedule_file_groups:
+    schedule_files_to_omit.append(group['_id'])
   if args.csvs:
     CSVs = args.csvs
   else:
@@ -236,7 +241,8 @@ if __name__ == '__main__':
       CSVs = data.check_ftp()
   # take list of files returned by FTP check and process them
   for csv in CSVs:
-    read_file(csv, args.flights)
+    if not any(csv.endswith(file) for file in schedule_files_to_omit):
+      read_file(csv, args.flights)
   print("Re-creating indexes...")
   start = time.time()
   create_indexes()
