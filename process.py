@@ -14,17 +14,22 @@ uri = 'mongodb://%s/%s' % (host, db)
 client = MongoClient(uri)
 db = client[db]
 
-def get_utc_datetime(time_str, utc_variance, base_date):
+def parse_time(time_str, utc_variance):
   [hours, minutes, seconds] = map(int, time_str.split(":"))
   utc_variance_sign = int(utc_variance[0] + "1")
   utc_variance_hours = int(utc_variance[1:3])
   utc_variance_minutes = int(utc_variance[3:])
+  utc_variance_delta = (utc_variance_sign * timedelta(
+    hours=utc_variance_hours,
+    minutes=utc_variance_minutes))
+  return hours, minutes, utc_variance_delta
+
+def get_utc_datetime(time_str, utc_variance, base_date):
+  hours, minutes, utc_variance_delta = parse_time(time_str, utc_variance)
   base_date = base_date.replace(
     hour=hours,
     minute=minutes)
-  base_date -= (utc_variance_sign * timedelta(
-    hours=utc_variance_hours,
-    minutes=utc_variance_minutes))
+  base_date -= utc_variance_delta
   return base_date
 
 def get_utc_time(time_str, utc_variance):
@@ -61,68 +66,81 @@ def create_leg(record, schedule_file_name):
   }
 
 def create_flights(record):
+  carrier = record.carrier
+  flightnumber = record.flightnumber
+  departureAirport = record.departureAirport
+  arrivalAirport = record.arrivalAirport
+  totalSeats = record.totalSeats
+  dep_hours, dep_minutes, dep_utc_variance_delta = parse_time(
+    record.arrivalTimePub, record.arrivalUTCVariance)
+  ar_hours, ar_minutes, ar_utc_variance_delta = parse_time(
+    record.departureTimePub, record.departureUTCVariance)
   # create range of dates between effective/discontinued dates for this leg
   for date in get_date_range(record):
-    arrival_datetime = get_utc_datetime(
-      record.arrivalTimePub, record.arrivalUTCVariance, date)
-    departure_datetime = get_utc_datetime(
-      record.departureTimePub, record.departureUTCVariance, date)
+    arrival_datetime = date.replace(
+      hour=ar_hours,
+      minute=ar_minutes) - ar_utc_variance_delta
+    departure_datetime = date.replace(
+      hour=dep_hours,
+      minute=dep_minutes) - dep_utc_variance_delta
     if arrival_datetime <= departure_datetime:
       # assume the flight lands the next day
       arrival_datetime += timedelta(days=1)
     yield {
-      "carrier": record.carrier,
-      "flightNumber": record.flightnumber,
-      "departureAirport": record.departureAirport,
-      "arrivalAirport": record.arrivalAirport,
-      "totalSeats": record.totalSeats,
+      "carrier": carrier,
+      "flightNumber": flightnumber,
+      "departureAirport": departureAirport,
+      "arrivalAirport": arrivalAirport,
+      "totalSeats": totalSeats,
       "departureDateTime": departure_datetime,
       "arrivalDateTime": arrival_datetime
     }
 
 def read_file(datafile, flights=False):
   try:
-    bulk = db.legs.initialize_unordered_bulk_op()
-    bulk_schedule = db.schedules.initialize_unordered_bulk_op()
-    bulk_flights = None
-
     print("begin read csv", datafile)
     start = time.time()
-    data = pd.read_csv(datafile, dtype={'arrivalUTCVariance': str, 'departureUTCVariance': str}, converters={'effectiveDate': convert_to_date, 'discontinuedDate': convert_to_date}, sep=',')
+    data = pd.read_csv(datafile, dtype={
+      'arrivalUTCVariance': str,
+      'departureUTCVariance': str}, converters={
+        'effectiveDate': convert_to_date,
+        'discontinuedDate': convert_to_date}, sep=',')
     end = time.time()
     print("finished reading CSV", end - start)
 
     date = data['effectiveDate'].min()
-    update_previous_dump(date,flights)
+    update_previous_dump(date, flights)
 
-    # we don't care about records that have more than 0 stops
+    # filter out rows with stops
     data = data.loc[data["stops"] == 0]
     print("begin processing records")
     start = time.time()
-    for index, record in data.iterrows():
-      if index % 10000 == 0:
-        end = time.time()
-        print("processed", index, "legs in", end - start)
-      # if record has stops != 0 then don't process record. AKA if stops == 0 we process the record
-      if record.stops > 0:
-        return
-
-      if not flights:
-        insert_record = create_leg(record, os.path.basename(datafile))
-        bulk.insert(insert_record)
-        bulk_schedule.insert(insert_record)
-      else:
-        # The flights collection will be used in future iteration of consume
-        # where we insert individual flights instead of flight schedules
-        bulk_flights = db.flights.initialize_unordered_bulk_op()
+    if flights:
+      bulk_flights = None
+      for index, record in data.iterrows():
+        if index % 1000 == 0:
+          if bulk_flights:
+            bulk_flights.execute()
+          bulk_flights = db.flights.initialize_unordered_bulk_op()
+          end = time.time()
+          print("processed", index, "rows in", end - start)
         for flight in create_flights(record):
           bulk_flights.insert(flight)
-        bulk_flights.execute()
-    try:
-      bulk.execute()
-      bulk_schedule.execute()
-    except Exception as e:
-      print("Problem bulk executing schedule data:", e)
+    else:
+      bulk_legs = None
+      bulk_schedule = None
+      for index, record in data.iterrows():
+        if index % 1000 == 0:
+          if bulk_legs:
+            bulk_legs.execute()
+            bulk_schedule.execute()
+          bulk_legs = db.legs.initialize_unordered_bulk_op()
+          bulk_schedule = db.schedules.initialize_unordered_bulk_op()
+          end = time.time()
+          print("processed", index, "rows in", end - start)
+        insert_record = create_leg(record, os.path.basename(datafile))
+        bulk_legs.insert(insert_record)
+        bulk_schedule.insert(insert_record)
     end = time.time()
     print("done processing records", end - start)
   except ValueError as e:
@@ -199,19 +217,23 @@ if __name__ == '__main__':
   parser = argparse.ArgumentParser()
   parser.add_argument("-s", "--s3", help="Specify that files should be downloaded from S3", action="store_true")
   parser.add_argument("-f", "--flights", help="Only update the individual Flights collection", action="store_true")
+  parser.add_argument('csvs', nargs='*', help='Paths to specific CSVs to be processed.')
   args = parser.parse_args()
 
-  # setup a way to read backlog of files from S3 instead of reading files from FlightGlobal FTP
-  CSVs = None
-  # if user specified S3 as data source pull from there
-  if args.s3:
-    print("processing S3")
-    CSVs = data.pull_from_s3()
-    CSVs.sort()
+  if args.csvs:
+    CSVs = args.csvs
   else:
-    print("processing FTP")
-    # check FTP
-    CSVs = data.check_ftp()
+    # setup a way to read backlog of files from S3 instead of reading files from FlightGlobal FTP
+    CSVs = None
+    # if user specified S3 as data source pull from there
+    if args.s3:
+      print("processing S3")
+      CSVs = data.pull_from_s3()
+      CSVs.sort()
+    else:
+      print("processing FTP")
+      # check FTP
+      CSVs = data.check_ftp()
   # take list of files returned by FTP check and process them
   for csv in CSVs:
     read_file(csv, args.flights)
