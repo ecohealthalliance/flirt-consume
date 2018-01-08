@@ -1,6 +1,5 @@
 # Handles pulling data files from both FTP and the S3 archive
 from __future__ import print_function
-from settings_dev import url, uname, pwd
 import ftplib
 import os.path
 from datetime import datetime
@@ -9,7 +8,6 @@ from threading import Thread
 from time import sleep
 import sys
 import zipfile
-from settings_dev import host, db 
 from pymongo import IndexModel, MongoClient
 import boto3
 
@@ -124,18 +122,13 @@ def read_files():
 class FtpEntry:
   # each entry will be an array like the following: ['Type=file;','Size=34;','Modify=20170207103453.870;',' EcoHealth_20170207.md5']
   def __init__(self, entry):
-    # db = data.FlirtDB().db
-    uri = 'mongodb://%s/%s' % (host, db)
-    client = MongoClient(uri)
-    flirt_db = client['flirt']
     entry =  entry.split(";")
     self.type = self.__getValue(entry[0])
     self.size = float(self.__getValue(entry[1]))
     self.modify = datetime.strptime(self.__getValue(entry[2]), '%Y%m%d%H%M%S.%f')
     self.name = entry[3].strip()
     self.extension = os.path.splitext(entry[3])[1]
-    # we are assuming that zip files that do not have an entry in the "processedFiles" collection need to be processed 
-    self.needs_to_be_processed = self.extension == ".zip" and flirt_db.processedFiles.find_one({'fileName': self.name}) == None
+    self.needs_to_be_processed = self.extension == ".zip"
 
   # extracts the value from the key/value pair. Example: 'Type=file' returns `file`
   def __getValue(self, pair):

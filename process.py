@@ -1,7 +1,7 @@
 from __future__ import print_function
 import data
 import pandas as pd
-from settings_dev import host, db 
+from settings import mongo_uri, mongo_db_name
 from pymongo import IndexModel, MongoClient, ASCENDING
 from datetime import datetime, timedelta
 import datetime
@@ -10,9 +10,9 @@ import time
 import traceback
 import sys
 
-uri = 'mongodb://%s/%s' % (host, db)
-client = MongoClient(uri)
-db = client[db]
+
+client = MongoClient(mongo_uri)
+db = client[mongo_db_name]
 
 def parse_time(time_str, utc_variance):
   [hours, minutes, seconds] = map(int, time_str.split(":"))
@@ -135,6 +135,7 @@ def read_file(datafile, flights=False):
           print("processed", index, "rows in", end - start)
         for flight in create_flights(record):
           if flight["departureDateTime"] >= dump_start_date:
+            flirt["scheduleFileName"] = os.path.basename(datafile)
             bulk_flights.insert(flight)
     else:
       bulk_legs = None
@@ -225,16 +226,20 @@ def update_previous_dump(dumpDate, flights=False):
 if __name__ == '__main__':
   import argparse
   parser = argparse.ArgumentParser()
-  parser.add_argument("-s", "--s3", help="Specify that files should be downloaded from S3", action="store_true")
-  parser.add_argument("-f", "--flights", help="Only update the individual Flights collection", action="store_true")
-  parser.add_argument('csvs', nargs='*', help='Paths to specific CSVs to be processed.')
+  parser.add_argument("--s3", help="Specify that files should be downloaded from S3", action="store_true")
+  parser.add_argument("--flights", help="Only update the individual Flights collection", action="store_true")
+  parser.add_argument("--skip_imported", help="Skip previously imported dumps", action="store_true")
+  parser.add_argument("csvs", nargs="*", help="Paths to specific CSVs to be processed.")
   args = parser.parse_args()
-
   # Omit previously imported schedules.
-  schedule_file_groups = db.schedules.aggregate([{'$group':{'_id':"$scheduleFileName"}}])
+  schedule_file_groups = db.schedules.aggregate([{
+    "$group": {
+      "_id": "$scheduleFileName"
+    }
+  }])
   schedule_files_to_omit = []
   for group in schedule_file_groups:
-    schedule_files_to_omit.append(group['_id'])
+    schedule_files_to_omit.append(group["_id"])
   if args.csvs:
     CSVs = args.csvs
   else:
@@ -249,10 +254,15 @@ if __name__ == '__main__':
       print("processing FTP")
       # check FTP
       CSVs = data.check_ftp()
+  CSVs = [
+    csv for csv in CSVs
+    if not(args.skip_imported and any(csv.endswith(file)
+                                      for file in schedule_files_to_omit))]
+  print("CSVs to import:")
+  print(", ".join(CSVs))
   # take list of files returned by FTP check and process them
   for csv in CSVs:
-    if not any(csv.endswith(file) for file in schedule_files_to_omit):
-      read_file(csv, args.flights)
+    read_file(csv, args.flights)
   print("Re-creating indexes...")
   start = time.time()
   create_indexes()
