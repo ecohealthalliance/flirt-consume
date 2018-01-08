@@ -1,5 +1,6 @@
 # Handles pulling data files from both FTP and the S3 archive
 from __future__ import print_function
+import settings
 import ftplib
 import os.path
 from datetime import datetime
@@ -50,8 +51,8 @@ def threaded_ftp_progress(ftpEntry, path):
     sleep(1)
 
 def connect_to_ftp():
-  ftp.connect(url)
-  ftp.login(uname, pwd)
+  ftp.connect(settings.url)
+  ftp.login(settings.uname, settings.pwd)
 
 def sortByModified( a_string ):
     entry_attr = a_string.split(';')
