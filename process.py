@@ -108,8 +108,17 @@ def read_file(datafile, flights=False):
     end = time.time()
     print("finished reading CSV", end - start)
 
-    date = data['effectiveDate'].min()
-    update_previous_dump(date, flights)
+    dump_start_date = data['effectiveDate'].min()
+    # The first few days of flights after the dump's minimum effective date are intentionally not imported
+    # because they do not include the full set of flights available in the prior dumps.
+    # The missing flights show up as downward spikes in daily flight plots where the dumps start.
+    # Data is only omitted when importing data into the flights collection.
+    # The issue might only affect the flights collection if it is a result of standardizing
+    # departure datetimes to GMT. If it affects the legs and schedules collections, a fix will
+    # be much more complicated.
+    if flights:
+      dump_start_date += timedelta(days=2)
+    update_previous_dump(dump_start_date, flights)
 
     # filter out rows with stops
     data = data.loc[data["stops"] == 0]
@@ -125,7 +134,8 @@ def read_file(datafile, flights=False):
           end = time.time()
           print("processed", index, "rows in", end - start)
         for flight in create_flights(record):
-          bulk_flights.insert(flight)
+          if flight["departureDateTime"] >= dump_start_date:
+            bulk_flights.insert(flight)
     else:
       bulk_legs = None
       bulk_schedule = None
