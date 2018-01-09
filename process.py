@@ -10,6 +10,7 @@ import time
 import traceback
 import sys
 import re
+import dateutil.parser as date_parser
 
 
 client = MongoClient(mongo_uri)
@@ -226,11 +227,10 @@ def update_previous_dump(dumpDate, flights=False):
 def parse_csv_name_to_date(csv_name):
   basename = os.path.basename(csv_name)
   date_match = re.match(r"EcoHealth(_|-)([^_]*\d{4}).*", basename).groups()[1]
-  return parser.parse(date_match, default=datetime.datetime(2000,1,1))
+  return date_parser.parse(date_match, default=datetime.datetime(2000,1,1))
 
 if __name__ == '__main__':
   import argparse
-  import dateutil.parser as parser
   parser = argparse.ArgumentParser()
   parser.add_argument("--s3", help="Specify that files should be downloaded from S3", action="store_true")
   parser.add_argument("--flights", help="Only update the individual Flights collection", action="store_true")
