@@ -9,6 +9,7 @@ import os.path
 import time
 import traceback
 import sys
+import re
 
 
 client = MongoClient(mongo_uri)
@@ -222,9 +223,14 @@ def update_previous_dump(dumpDate, flights=False):
   end = time.time()
   print("finished updating previous dump", end - start)
 
+def parse_csv_name_to_date(csv_name):
+  basename = os.path.basename(csv_name)
+  date_match = re.match(r"EcoHealth(_|-)([^_]*\d{4}).*", basename).groups()[1]
+  return parser.parse(date_match, default=datetime.datetime(2000,1,1))
 
 if __name__ == '__main__':
   import argparse
+  import dateutil.parser as parser
   parser = argparse.ArgumentParser()
   parser.add_argument("--s3", help="Specify that files should be downloaded from S3", action="store_true")
   parser.add_argument("--flights", help="Only update the individual Flights collection", action="store_true")
@@ -232,14 +238,9 @@ if __name__ == '__main__':
   parser.add_argument("csvs", nargs="*", help="Paths to specific CSVs to be processed.")
   args = parser.parse_args()
   # Omit previously imported schedules.
-  schedule_file_groups = db.schedules.aggregate([{
-    "$group": {
-      "_id": "$scheduleFileName"
-    }
-  }])
-  schedule_files_to_omit = []
-  for group in schedule_file_groups:
-    schedule_files_to_omit.append(group["_id"])
+  imported_files = list(db.importedFiles.find({"importComplete": True}))
+  schedule_files_to_omit = [file["name"] for file in imported_files]
+
   if args.csvs:
     CSVs = args.csvs
   else:
@@ -254,15 +255,46 @@ if __name__ == '__main__':
       print("processing FTP")
       # check FTP
       CSVs = data.check_ftp()
-  CSVs = [
-    csv for csv in CSVs
-    if not(args.skip_imported and any(csv.endswith(file)
-                                      for file in schedule_files_to_omit))]
-  print("CSVs to import:")
+  CSVs = sorted(CSVs, key=parse_csv_name_to_date)
+  if args.skip_imported:
+    # find first unimported CSV and import everything after it
+    while len(CSVs) > 0:
+      if CSVs[0] not in schedule_files_to_omit:
+        db.importedFiles.update({
+          "parsedFileNameDate": {
+            "$gte": parse_csv_name_to_date(CSVs[0])
+          }
+        }, {
+          "$set" : {
+            "importComplete": False
+          }
+        }, upsert=True, multi=True)
+        break
+      else:
+        print("Skipping " + CSVs.pop(0))
+  print("CSVs to imprort:")
   print(", ".join(CSVs))
   # take list of files returned by FTP check and process them
   for csv in CSVs:
+    db.importedFiles.update({
+      "name": csv
+    }, {
+      "$set" : {
+        "importStartTime": datetime.datetime.now(),
+        "importerVerion": "0.0.0",
+        "parsedFileNameDate": parse_csv_name_to_date(csv),
+        "importComplete": False
+      }
+    }, upsert=True, multi=True)
     read_file(csv, args.flights)
+    db.importedFiles.update({
+      "name": csv
+    }, {
+      "$set" : {
+        "importFinishTime": datetime.datetime.now(),
+        "importComplete": True
+      }
+    }, upsert=True)
   print("Re-creating indexes...")
   start = time.time()
   create_indexes()
