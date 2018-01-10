@@ -141,7 +141,7 @@ def read_file(datafile, flights=False):
           print("processed", index, "rows in", end - start)
         for flight in create_flights(record):
           if flight["departureDateTime"] >= dump_start_date and flight["departureDateTime"] <= max_import_date:
-            flirt["scheduleFileName"] = os.path.basename(datafile)
+            flight["scheduleFileName"] = os.path.basename(datafile)
             bulk_flights.insert(flight)
     else:
       bulk_legs = None
