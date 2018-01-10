@@ -18,8 +18,9 @@ flirt = s3.Bucket("eha-flirt")
 
 def check_ftp():
   connect_to_ftp()
-  print("read files")
+  print("FTP Connected")
   CSVs = read_files()
+  print("Files read")
   return CSVs
 
 def pull_from_s3():
@@ -109,9 +110,9 @@ def get_ftp_entries():
   return ls
 
 def read_files():
-  ls = get_ftp_entries()
+  entries = list(get_ftp_entries())
   CSVs = []
-  for entry in ls:
+  for entry in entries:
     ftp_entry = FtpEntry(entry)
     if ftp_entry.needs_to_be_processed:
       print("Processing file", ftp_entry.name)

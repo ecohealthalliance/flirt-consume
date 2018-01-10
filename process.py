@@ -233,12 +233,16 @@ if __name__ == '__main__':
   import argparse
   parser = argparse.ArgumentParser()
   parser.add_argument("--s3", help="Specify that files should be downloaded from S3", action="store_true")
-  parser.add_argument("--flights", help="Only update the individual Flights collection", action="store_true")
+  parser.add_argument("--flights", help="Update the individual Flights collection", action="store_true")
   parser.add_argument("--skip_imported", help="Skip previously imported dumps", action="store_true")
   parser.add_argument("csvs", nargs="*", help="Paths to specific CSVs to be processed.")
   args = parser.parse_args()
+  collection = "flights" if args.flights else "schedules"
   # Omit previously imported schedules.
-  imported_files = list(db.importedFiles.find({"importComplete": True}))
+  imported_files = list(db.importedFiles.find({
+    "importComplete": True,
+    "collection": collection
+  }))
   schedule_files_to_omit = [file["name"] for file in imported_files]
 
   if args.csvs:
@@ -250,7 +254,6 @@ if __name__ == '__main__':
     if args.s3:
       print("processing S3")
       CSVs = data.pull_from_s3()
-      CSVs.sort()
     else:
       print("processing FTP")
       # check FTP
@@ -263,7 +266,8 @@ if __name__ == '__main__':
         db.importedFiles.update({
           "parsedFileNameDate": {
             "$gte": parse_csv_name_to_date(CSVs[0])
-          }
+          },
+          "collection": collection
         }, {
           "$set" : {
             "importComplete": False
@@ -277,7 +281,8 @@ if __name__ == '__main__':
   # take list of files returned by FTP check and process them
   for csv in CSVs:
     db.importedFiles.update({
-      "name": csv
+      "name": csv,
+      "collection": collection
     }, {
       "$set" : {
         "importStartTime": datetime.datetime.now(),
@@ -288,7 +293,8 @@ if __name__ == '__main__':
     }, upsert=True, multi=True)
     read_file(csv, args.flights)
     db.importedFiles.update({
-      "name": csv
+      "name": csv,
+      "collection": collection
     }, {
       "$set" : {
         "importFinishTime": datetime.datetime.now(),
