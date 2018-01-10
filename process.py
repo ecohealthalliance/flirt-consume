@@ -121,9 +121,13 @@ def read_file(datafile, flights=False):
     if flights:
       dump_start_date += timedelta(days=2)
     update_previous_dump(dump_start_date, flights)
+    # Don't import the far future data because it is incomplete and slows down
+    # imports of future dumps when it has to be replaced.
+    max_import_date = dump_start_date + timedelta(days=700)
 
     # filter out rows with stops
     data = data.loc[data["stops"] == 0]
+    data = data[data.effectiveDate <= max_import_date]
     print("begin processing records")
     start = time.time()
     if flights:
@@ -132,11 +136,11 @@ def read_file(datafile, flights=False):
         if index % 1000 == 0:
           if bulk_flights:
             bulk_flights.execute()
-          bulk_flights = db.flights.initialize_unordered_bulk_op()
+          bulk_flights = db.flights_import.initialize_unordered_bulk_op()
           end = time.time()
           print("processed", index, "rows in", end - start)
         for flight in create_flights(record):
-          if flight["departureDateTime"] >= dump_start_date:
+          if flight["departureDateTime"] >= dump_start_date and flight["departureDateTime"] <= max_import_date:
             flirt["scheduleFileName"] = os.path.basename(datafile)
             bulk_flights.insert(flight)
     else:
@@ -147,8 +151,8 @@ def read_file(datafile, flights=False):
           if bulk_legs:
             bulk_legs.execute()
             bulk_schedule.execute()
-          bulk_legs = db.legs.initialize_unordered_bulk_op()
-          bulk_schedule = db.schedules.initialize_unordered_bulk_op()
+          bulk_legs = db.legs_import.initialize_unordered_bulk_op()
+          bulk_schedule = db.schedules_import.initialize_unordered_bulk_op()
           end = time.time()
           print("processed", index, "rows in", end - start)
         insert_record = create_leg(record, os.path.basename(datafile))
@@ -172,27 +176,6 @@ def get_date_range(record):
       dates.append(date)
   return dates
 
-def drop_indexes():
-  db.legs.drop_indexes()
-
-def create_indexes():
-  idIndex = IndexModel([("_id", ASCENDING)])
-  departureIndex = IndexModel([("departureAirport._id", ASCENDING)])
-  departEffectDiscIndex = IndexModel([
-    ("departureAirport._id", ASCENDING),
-    ("effectiveDate", ASCENDING),
-    ("discontinuedDate", ASCENDING)
-  ])
-  effectiveIndex = IndexModel([("effectiveDate", ASCENDING)])
-  discontinueIndex = IndexModel([("discontinuedDate", ASCENDING)])
-  db.legs.create_indexes([
-    idIndex,
-    departureIndex,
-    departEffectDiscIndex,
-    effectiveIndex,
-    discontinueIndex
-  ])
-
 def convert_to_date(value):
     return datetime.datetime.strptime(value, "%d/%m/%Y")
 
@@ -203,11 +186,11 @@ def update_previous_dump(dumpDate, flights=False):
   # since the new dump will decide what records exist going foward we remove any 
   # previous records where the effectiveDate strays into the present
   if flights:
-    db.flights.delete_many({"departureDateTime": {"$gte": dumpDate}})
+    db.flights_import.delete_many({"departureDateTime": {"$gte": dumpDate}})
   else:
-    db.legs.delete_many({"effectiveDate": {"$gte": dumpDate}})  
+    db.legs_import.delete_many({"effectiveDate": {"$gte": dumpDate}})
     # pull array values
-    db.legs.update(
+    db.legs_import.update(
       { "effectiveDate": {"$lt": dumpDate},
         "discontinuedDate": {"$gte": dumpDate}
       },
@@ -215,7 +198,7 @@ def update_previous_dump(dumpDate, flights=False):
       upsert=False, 
       multi=True
     )
-    db.legs.update(
+    db.legs_import.update(
       { "effectiveDate": {"$lt": dumpDate},
         "discontinuedDate": {"$gte": dumpDate}
       },
@@ -234,17 +217,27 @@ if __name__ == '__main__':
   parser = argparse.ArgumentParser()
   parser.add_argument("--s3", help="Specify that files should be downloaded from S3", action="store_true")
   parser.add_argument("--flights", help="Update the individual Flights collection", action="store_true")
-  parser.add_argument("--skip_imported", help="Skip previously imported dumps", action="store_true")
+  #parser.add_argument("--skip_imported", help="Skip previously imported dumps", action="store_true")
   parser.add_argument("csvs", nargs="*", help="Paths to specific CSVs to be processed.")
   args = parser.parse_args()
   collection = "flights" if args.flights else "schedules"
-  # Omit previously imported schedules.
   imported_files = list(db.importedFiles.find({
     "importComplete": True,
     "collection": collection
   }))
-  schedule_files_to_omit = [file["name"] for file in imported_files]
-
+  # Create indexes that are useful for deleting overlapping data
+  db.legs_import.create_indexes([
+    IndexModel([("effectiveDate", ASCENDING)]),
+    IndexModel([("discontinuedDate", ASCENDING)])
+  ])
+  db.flights_import.create_indexes([
+    IndexModel([
+      ("departureDateTime", ASCENDING)
+    ])
+  ])
+  schedule_files_to_omit = []
+  # if args.skip_imported:
+  #   schedule_files_to_omit = [file["name"] for file in imported_files]
   if args.csvs:
     CSVs = args.csvs
   else:
@@ -259,23 +252,18 @@ if __name__ == '__main__':
       # check FTP
       CSVs = data.check_ftp()
   CSVs = sorted(CSVs, key=parse_csv_name_to_date)
-  if args.skip_imported:
-    # find first unimported CSV and import everything after it
-    while len(CSVs) > 0:
-      if CSVs[0] not in schedule_files_to_omit:
-        db.importedFiles.update({
-          "parsedFileNameDate": {
-            "$gte": parse_csv_name_to_date(CSVs[0])
-          },
-          "collection": collection
-        }, {
-          "$set" : {
-            "importComplete": False
-          }
-        }, upsert=True, multi=True)
-        break
-      else:
-        print("Skipping " + CSVs.pop(0))
+  # find first unimported CSV and import everything after it
+  while len(CSVs) > 0:
+    if CSVs[0] not in schedule_files_to_omit:
+      db.importedFiles.delete_many({
+        "parsedFileNameDate": {
+          "$gte": parse_csv_name_to_date(CSVs[0])
+        },
+        "collection": collection
+      })
+      break
+    else:
+      print("Skipping " + CSVs.pop(0))
   print("CSVs to imprort:")
   print(", ".join(CSVs))
   # take list of files returned by FTP check and process them
@@ -301,8 +289,38 @@ if __name__ == '__main__':
         "importComplete": True
       }
     }, upsert=True)
-  print("Re-creating indexes...")
+  print("Creating indexes...")
   start = time.time()
-  create_indexes()
+  if args.flights:
+    db.flights_import.create_indexes([
+      IndexModel([
+        ("arrivalAirport", ASCENDING),
+        ("arrivalDateTime", ASCENDING)
+      ]),
+      IndexModel([
+        ("departureAirport", ASCENDING),
+        ("departureDateTime", ASCENDING)
+      ]),
+      IndexModel([
+        ("departureAirport", ASCENDING)
+      ]),
+      IndexModel([
+        ("departureDateTime", ASCENDING)
+      ])
+    ])
+    db.flights_import.rename("flights", dropTarget=True)
+  else:
+    db.legs_import.create_indexes([
+      IndexModel([("departureAirport._id", ASCENDING)]),
+      IndexModel([
+        ("departureAirport._id", ASCENDING),
+        ("effectiveDate", ASCENDING),
+        ("discontinuedDate", ASCENDING)
+      ]),
+      IndexModel([("effectiveDate", ASCENDING)]),
+      IndexModel([("discontinuedDate", ASCENDING)])
+    ])
+    db.legs_import.rename("legs", dropTarget=True)
+    db.schedules_import.rename("schedules", dropTarget=True)
   end = time.time()
   print("Indexes re-created!", end - start)
