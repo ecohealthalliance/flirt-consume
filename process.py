@@ -98,71 +98,68 @@ def create_flights(record):
       "arrivalDateTime": arrival_datetime
     }
 
-def read_file(datafile, flights=False):
-  try:
-    print("begin read csv", datafile)
-    start = time.time()
-    data = pd.read_csv(datafile, dtype={
-      'arrivalUTCVariance': str,
-      'departureUTCVariance': str}, converters={
-        'effectiveDate': convert_to_date,
-        'discontinuedDate': convert_to_date}, sep=',')
-    end = time.time()
-    print("finished reading CSV", end - start)
+def read_file(datafile, flights=False, end_date=None):
+  start = time.time()
+  data = pd.read_csv(datafile, dtype={
+    'arrivalUTCVariance': str,
+    'departureUTCVariance': str}, converters={
+      'effectiveDate': convert_to_date,
+      'discontinuedDate': convert_to_date}, sep=',')
+  end = time.time()
+  print("finished reading CSV", end - start)
 
-    dump_start_date = data['effectiveDate'].min()
-    # The first few days of flights after the dump's minimum effective date are intentionally not imported
-    # because they do not include the full set of flights available in the prior dumps.
-    # The missing flights show up as downward spikes in daily flight plots where the dumps start.
-    # Data is only omitted when importing data into the flights collection.
-    # The issue might only affect the flights collection if it is a result of standardizing
-    # departure datetimes to GMT. If it affects the legs and schedules collections, a fix will
-    # be much more complicated.
-    if flights:
-      dump_start_date += timedelta(days=2)
-    update_previous_dump(dump_start_date, flights)
-    # Don't import the far future data because it is incomplete and slows down
-    # imports of future dumps when it has to be replaced.
-    max_import_date = dump_start_date + timedelta(days=700)
+  dump_start_date = data['effectiveDate'].min()
+  # The first few days of flights after the dump's minimum effective date are intentionally not imported
+  # because they do not include the full set of flights available in the prior dumps.
+  # The missing flights show up as downward spikes in daily flight plots where the dumps start.
+  # Data is only omitted when importing data into the flights collection.
+  # The issue might only affect the flights collection if it is a result of standardizing
+  # departure datetimes to GMT. If it affects the legs and schedules collections, a fix will
+  # be much more complicated.
+  if flights:
+    dump_start_date += timedelta(days=2)
+  update_previous_dump(dump_start_date, flights)
+  # Don't import the far future data because it is incomplete and slows down
+  # imports of future dumps when it has to be replaced.
+  max_import_date = dump_start_date + timedelta(days=700)
+  if end_date:
+    max_import_date = end_date
 
-    # filter out rows with stops
-    data = data.loc[data["stops"] == 0]
-    data = data[data.effectiveDate <= max_import_date]
-    print("begin processing records")
-    start = time.time()
-    if flights:
-      bulk_flights = None
-      for index, record in data.iterrows():
-        if index % 1000 == 0:
-          if bulk_flights:
-            bulk_flights.execute()
-          bulk_flights = db.flights_import.initialize_unordered_bulk_op()
-          end = time.time()
-          print("processed", index, "rows in", end - start)
-        for flight in create_flights(record):
-          if flight["departureDateTime"] >= dump_start_date and flight["departureDateTime"] <= max_import_date:
-            flight["scheduleFileName"] = os.path.basename(datafile)
-            bulk_flights.insert(flight)
-    else:
-      bulk_legs = None
-      bulk_schedule = None
-      for index, record in data.iterrows():
-        if index % 1000 == 0:
-          if bulk_legs:
-            bulk_legs.execute()
-            bulk_schedule.execute()
-          bulk_legs = db.legs_import.initialize_unordered_bulk_op()
-          bulk_schedule = db.schedules_import.initialize_unordered_bulk_op()
-          end = time.time()
-          print("processed", index, "rows in", end - start)
-        insert_record = create_leg(record, os.path.basename(datafile))
-        bulk_legs.insert(insert_record)
-        bulk_schedule.insert(insert_record)
-    end = time.time()
-    print("done processing records", end - start)
-  except ValueError as e:
-    print('\n'.join([str(i) for i in sys.exc_info()]))
-    print(e)
+  # filter out rows with stops
+  data = data.loc[data["stops"] == 0]
+  data = data[data.effectiveDate <= max_import_date]
+  print("begin processing records")
+  start = time.time()
+  if flights:
+    bulk_flights = None
+    for index, record in data.iterrows():
+      if index % 1000 == 0:
+        if bulk_flights:
+          bulk_flights.execute()
+        bulk_flights = db.flights_import.initialize_unordered_bulk_op()
+        end = time.time()
+        print("processed", index, "rows in", end - start)
+      for flight in create_flights(record):
+        if flight["departureDateTime"] >= dump_start_date and flight["departureDateTime"] <= max_import_date:
+          flight["scheduleFileName"] = os.path.basename(datafile)
+          bulk_flights.insert(flight)
+  else:
+    bulk_legs = None
+    bulk_schedule = None
+    for index, record in data.iterrows():
+      if index % 1000 == 0:
+        if bulk_legs:
+          bulk_legs.execute()
+          bulk_schedule.execute()
+        bulk_legs = db.legs_import.initialize_unordered_bulk_op()
+        bulk_schedule = db.schedules_import.initialize_unordered_bulk_op()
+        end = time.time()
+        print("processed", index, "rows in", end - start)
+      insert_record = create_leg(record, os.path.basename(datafile))
+      bulk_legs.insert(insert_record)
+      bulk_schedule.insert(insert_record)
+  end = time.time()
+  print("done processing records", end - start)
 
 def get_date_range(record):
   days = [record.day1, record.day2, record.day3, record.day4, record.day5, record.day6, record.day7]
@@ -266,8 +263,11 @@ if __name__ == '__main__':
       print("Skipping " + CSVs.pop(0))
   print("CSVs to imprort:")
   print(", ".join(CSVs))
-  # take list of files returned by FTP check and process them
-  for csv in CSVs:
+  csv_end_dates = []
+  for csv in CSVs[1:]:
+    csv_end_dates.append(parse_csv_name_to_date(csv) + timedelta(days=2))
+  csv_end_dates.append(None)
+  for csv, end_date in zip(CSVs, csv_end_dates):
     db.importedFiles.update({
       "name": csv,
       "collection": collection
@@ -279,16 +279,21 @@ if __name__ == '__main__':
         "importComplete": False
       }
     }, upsert=True, multi=True)
-    read_file(csv, args.flights)
-    db.importedFiles.update({
-      "name": csv,
-      "collection": collection
-    }, {
-      "$set" : {
-        "importFinishTime": datetime.datetime.now(),
-        "importComplete": True
-      }
-    }, upsert=True)
+    try:
+      print("Begin read csv", csv, args.flights)
+      read_file(csv, args.flights, end_date)
+      db.importedFiles.update({
+        "name": csv,
+        "collection": collection
+      }, {
+        "$set" : {
+          "importFinishTime": datetime.datetime.now(),
+          "importComplete": True
+        }
+      }, upsert=True)
+    except ValueError as e:
+      print('\n'.join([str(i) for i in sys.exc_info()]))
+      print(e)
   print("Creating indexes...")
   start = time.time()
   if args.flights:
