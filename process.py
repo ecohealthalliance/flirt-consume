@@ -132,7 +132,7 @@ def read_file(datafile, flights=False, end_date=None):
   start = time.time()
   if flights:
     bulk_flights = None
-    for index, record in data.iterrows():
+    for index, record in enumerate(data.itertuples()):
       if index % 1000 == 0:
         if bulk_flights:
           bulk_flights.execute()
@@ -146,7 +146,7 @@ def read_file(datafile, flights=False, end_date=None):
   else:
     bulk_legs = None
     bulk_schedule = None
-    for index, record in data.iterrows():
+    for index, record in enumerate(data.itertuples()):
       if index % 1000 == 0:
         if bulk_legs:
           bulk_legs.execute()
