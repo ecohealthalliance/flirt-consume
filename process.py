@@ -212,7 +212,6 @@ def parse_csv_name_to_date(csv_name):
 if __name__ == '__main__':
   import argparse
   parser = argparse.ArgumentParser()
-  parser.add_argument("--s3", help="Specify that files should be downloaded from S3", action="store_true")
   parser.add_argument("--flights", help="Update the individual Flights collection", action="store_true")
   #parser.add_argument("--skip_imported", help="Skip previously imported dumps", action="store_true")
   parser.add_argument("csvs", nargs="*", help="Paths to specific CSVs to be processed.")
@@ -238,16 +237,10 @@ if __name__ == '__main__':
   if args.csvs:
     CSVs = args.csvs
   else:
-    # setup a way to read backlog of files from S3 instead of reading files from FlightGlobal FTP
-    CSVs = None
-    # if user specified S3 as data source pull from there
-    if args.s3:
-      print("processing S3")
-      CSVs = data.pull_from_s3()
-    else:
-      print("processing FTP")
-      # check FTP
-      CSVs = data.check_ftp()
+    print("processing FTP")
+    data.check_ftp()
+    print("processing S3")
+    CSVs = data.pull_from_s3()
   CSVs = sorted(CSVs, key=parse_csv_name_to_date)
   # find first unimported CSV and import everything after it
   while len(CSVs) > 0:
